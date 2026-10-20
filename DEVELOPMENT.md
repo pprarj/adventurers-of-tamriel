@@ -146,6 +146,20 @@ division decodes it. Zero is never a valid entry, id or state, because
 Eligibility, career totals and per-state counts are derived from these keys
 and are never stored.
 
+## The Missives adapter (soft dependency, D-35)
+
+Missives, Headhunter and MMH are **soft** (D-35, Rev 24): the core never has a third-party master. Each gains an adapter in its own plugin, with that mod as master. The first adapter is `AdventurersOfTamriel_Missives.esp` (masters `Skyrim.esm, Update.esm, Missives.esp`).
+
+Presence check (runtime, no error when missing):
+
+```
+if Game.GetFormFromFile(0x001D95, "Missives.esp") != None
+    ; adapter present, board serves both pools
+endif
+```
+
+Without the adapter the board serves only our own contracts. The adapter reads the board FormLists (`_M_ListQuests*` and `_D_ListQuests*`) **in game** via `Game.GetFormFromFile` so SkyPatcher injections are visible, and tests each entry as `Quest` before use. See D005/D006 for stage table, D-30 via(c) re-apply and E-12 above-rank note (StoresText on 00F0C6, alias Missive index 6).
+
 ## The SKSE plugin
 
 The project has no C++ yet. This section will say how to configure and
