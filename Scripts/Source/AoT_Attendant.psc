@@ -41,6 +41,10 @@ Scriptname AoT_Attendant extends Quest
 
 Function PayFee(Int aiBand)
     {Called from the fee fragment after the gold check passed.}
+    If AoT_Core.IsBandPaid(aiBand)
+        Debug.Trace("[AoT] Attendant PayFee: already paid band=" + aiBand)
+        Return
+    EndIf
     If aiBand < 0 || aiBand > AoT_Core.MaxBand()
         Debug.Trace("[AoT] Attendant PayFee: bad band " + aiBand)
         Return
