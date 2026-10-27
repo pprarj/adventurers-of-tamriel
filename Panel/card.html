@@ -181,7 +181,10 @@
       // tries per page load, and the view outlives the first opening.
       var back = resolve("AoTCardAction");
       if (back !== null) { back.fn("ready-" + back.via); }
-      send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length);
+      // The ack echoes what the page DREW (read back from the DOM), not the raw payload.
+      var drawnPoints = byId("progtext").textContent.match(/[0-9]+/);
+      send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
+        "|rank=" + byId("seal").textContent + "|points=" + (drawnPoints ? drawnPoints[0] : "?"));
     } catch (err) {
       byId("card").className = "";
       send("AoTCardLog", "render error: " + err.message);

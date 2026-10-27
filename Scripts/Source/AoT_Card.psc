@@ -142,6 +142,7 @@ Function OpenNow()
 EndFunction
 
 Function Push()
+	Debug.Trace("[AoT] Card: push rank=" + RankLetter(AoT_Core.GetRank()) + " points=" + AoT_Core.GetPoints())
 	Lodestone.WebUICall(ViewId, FnCard, BuildPayload())
 EndFunction
 
