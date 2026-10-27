@@ -1,6 +1,6 @@
 Scriptname AoT_Contract_2b_Alias extends ReferenceAlias
-{Alias script for Target (Boss) - completes quest when Boss dies.
-Attached to alias id 2.}
+{Alias script for Target (Boss) - completes the contract when Boss dies.
+Attached to alias id 2. Closes by function call (D012), not by SetStage.}
 
 Quest Property OwningQuestRef Auto
 
@@ -12,6 +12,11 @@ Event OnDeath(Actor akKiller)
     If q.GetStage() < 20 || q.IsStageDone(100)
         return
     EndIf
-    Debug.Trace("[AoT-2b-Alias] Boss died, setting stage 100 on " + q)
-    q.SetStage(100)
+    AoT_Contract_2b contract = q as AoT_Contract_2b
+    If !contract
+        Debug.Trace("[AoT-2b-Alias] Boss died but quest has no AoT_Contract_2b script: " + q)
+        return
+    EndIf
+    Debug.Trace("[AoT-2b-Alias] Boss died, completing contract on " + q)
+    contract.TryComplete()
 EndEvent

@@ -14,11 +14,8 @@ Event OnInit()
     RegisterForSingleUpdateGameTime(PollHours)
 EndEvent
 
-Event OnPlayerLoadGame()
-    ResolveGlobals()
-    ApplyViaC()
-    RegisterForSingleUpdateGameTime(PollHours)
-EndEvent
+; OnPlayerLoadGame is declared by Actor and ReferenceAlias, NOT by Quest, so it never
+; fires here; the load hook lives in AoT_MissivesAdapter_Player (ReferenceAlias).
 
 Event OnUpdateGameTime()
     RegisterForSingleUpdateGameTime(PollHours)
