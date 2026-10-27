@@ -146,6 +146,16 @@ division decodes it. Zero is never a valid entry, id or state, because
 Eligibility, career totals and per-state counts are derived from these keys
 and are never stored.
 
+## The adventurer card (`AoT_Card`, `Panel/card.html`)
+
+A read-only, one-screen web panel with the player's own record (rank, points toward the next rank, promotion exam ready, contracts completed / failed / in progress, points lost, fee status and completions by band). It reads `AoT_Core` at every opening and keeps no state of its own. It has no action on the guild.
+
+- Opens on a hotkey (F7, DirectX scan code 65, `AoT_Card.HotkeyCode`). The same key closes it, and so do Esc and the Close button.
+- Goes through the Lodestone `WebUI*` bridge, so it works on Meridian UI and on Prisma UI. Two version floors, never one number: `WebUIMinVersion` 1023000 for the web surface and `WebUIFocusMinVersion` 1022000 for focus; it also asks `WebUIHasCapability("view-focus")`. Without them the key shows the same facts in a message box.
+- Handshake: the view is shown first and focus is asked only after the page itself calls `AoTCardAction("ready-...")` (a loaded page is not necessarily our page). No answer in 6 s: hide, no focus, message box. A watchdog polls `WebUIIsViewFocused` every second and closes the panel if the focus is gone.
+- The page is one file, `Panel/card.html`, packed twice: `MeridianUI/AdventurersOfTamriel/card.html` and `PrismaUI/views/AdventurersOfTamriel/card.html`.
+- Plugin `AdventurersOfTamriel_Card.esp` carries the Start Game Enabled quest `AoT_CardQuest` with the `AoT_Card` script. Not installed means no card; the core `.esl` is not touched.
+
 ## The Missives adapter (soft dependency, D-35)
 
 Missives, Headhunter and MMH are **soft** (D-35, Rev 24): the core never has a third-party master. Each gains an adapter in its own plugin, with that mod as master. The first adapter is `AdventurersOfTamriel_Missives.esp` (masters `Skyrim.esm, Update.esm, Missives.esp`).

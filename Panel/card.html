@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adventurers of Tamriel - card</title>
+<!--
+  The adventurer card: ONE screen, read-only. It shows the player's own record
+  and nothing else; there is no action on the guild here (design D-23).
+
+  Written for two engines: Meridian UI and Prisma UI (Ultralight). So: ES5 only,
+  no external file, no font download, className instead of classList.
+
+  THE PAGE'S SIDE OF THE HANDSHAKE (copied in spirit from the Intelligence
+  Matters research panel): the page announces itself with AoTCardAction("ready-..")
+  as soon as it loads, and again after every payload. Papyrus shows nothing
+  focusable and asks for no focus until that arrives, so a page that failed to
+  load (an error page loads "successfully") can never trap the player.
+-->
+<style>
+  :root { --bg:#14110d; --panel:#211b14; --edge:#6b5a3a; --ink:#e8dcc0; --dim:#9a8c70; --gold:#d6b25e; --bar:#3a2f1f; --ok:#7fae6a; --bad:#b4574a; }
+  html, body { margin:0; padding:0; width:100%; height:100%; background:transparent; color:var(--ink); font-family:Georgia, "Times New Roman", serif; }
+  #shade { position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); }
+  #card { position:absolute; left:50%; top:50%; width:760px; margin-left:-380px; margin-top:-300px; box-sizing:border-box; padding:28px 34px; background:var(--panel); border:3px solid var(--edge); border-radius:6px; opacity:0; }
+  #card.ready { opacity:1; }
+  #head { overflow:hidden; border-bottom:1px solid var(--edge); padding-bottom:18px; margin-bottom:18px; }
+  #seal { float:left; width:112px; height:112px; border-radius:56px; border:4px solid var(--gold); background:var(--bar); text-align:center; line-height:112px; font-size:64px; color:var(--gold); margin-right:26px; }
+  #who { overflow:hidden; }
+  #name { font-size:30px; margin:6px 0 4px 0; }
+  #rankline { font-size:18px; color:var(--dim); }
+  #close { float:right; border:1px solid var(--edge); background:var(--bar); color:var(--ink); padding:4px 14px; font-family:inherit; font-size:15px; }
+  h2 { font-size:15px; font-weight:normal; letter-spacing:2px; text-transform:uppercase; color:var(--gold); margin:16px 0 8px 0; }
+  #barwrap { height:18px; background:var(--bar); border:1px solid var(--edge); }
+  #bar { height:18px; width:0; background:var(--gold); }
+  #progtext { margin-top:6px; font-size:16px; }
+  #exam { margin-top:6px; color:var(--ok); font-size:16px; display:none; }
+  .grid { overflow:hidden; }
+  .cell { float:left; width:25%; box-sizing:border-box; padding:6px 8px 6px 0; }
+  .num { font-size:28px; }
+  .lbl { font-size:13px; color:var(--dim); }
+  .bad .num { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--bar); font-weight:normal; }
+  th { color:var(--dim); font-size:13px; }
+  .paid { color:var(--ok); }
+  .unpaid { color:var(--dim); }
+  #hint { margin-top:14px; font-size:12px; color:var(--dim); text-align:right; }
+</style>
+</head>
+<body>
+<div id="shade"></div>
+<div id="card">
+  <div id="head">
+    <button id="close" type="button">Close</button>
+    <div id="seal">?</div>
+    <div id="who">
+      <div id="name">Adventurer</div>
+      <div id="rankline">Rank ?</div>
+    </div>
+  </div>
+
+  <h2>Progress</h2>
+  <div id="barwrap"><div id="bar"></div></div>
+  <div id="progtext"></div>
+  <div id="exam">You have the points. The promotion exam is the next step.</div>
+
+  <h2>Record</h2>
+  <div class="grid">
+    <div class="cell"><div class="num" id="done">0</div><div class="lbl">Contracts completed</div></div>
+    <div class="cell"><div class="num" id="open">0</div><div class="lbl">In progress</div></div>
+    <div class="cell bad"><div class="num" id="failed">0</div><div class="lbl">Contracts failed</div></div>
+    <div class="cell bad"><div class="num" id="lost">0</div><div class="lbl">Points lost</div></div>
+  </div>
+
+  <h2>Fees by band</h2>
+  <table>
+    <tr><th>Band</th><th>Fee status</th><th>Completed</th></tr>
+    <tbody id="bands"></tbody>
+  </table>
+
+  <div id="hint">Esc closes the card</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var BAND_NAMES = ["Low", "Medium", "High", "Very high", "Rank A own contract", "Rank S own contract"];
+  var LETTERS = "FEDCBAS";
+
+  // TWO PLACES TO LOOK FOR THE CALLBACK: window.<fn> is an alias the bridge
+  // writes over window.Lodestone.<fn>, and it can race. resolve() answers
+  // which form worked, so one run tells the cases apart.
+  function resolve(name) {
+    if (typeof window[name] === "function") { return { fn: window[name], via: "direct" }; }
+    var ns = window.Lodestone;
+    if (ns && typeof ns[name] === "function") { return { fn: ns[name], via: "lodestone" }; }
+    return null;
+  }
+
+  function send(name, arg) {
+    var r = resolve(name);
+    if (r === null) { return false; }
+    r.fn(arg === undefined || arg === null ? "" : String(arg));
+    return true;
+  }
+
+  function byId(id) { return document.getElementById(id); }
+
+  function setText(id, text) { byId(id).textContent = String(text); }
+
+  // Keys arrive in whatever case the game's string pool holds; compare lower.
+  function parse(payload) {
+    var out = {};
+    var lines = String(payload === undefined ? "" : payload).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].replace(/[ \t\r]+$/, "");
+      if (ln === "") { continue; }
+      var cut = ln.indexOf("|");
+      if (cut < 0) { continue; }
+      out[ln.substring(0, cut).toLowerCase()] = ln.substring(cut + 1);
+    }
+    return out;
+  }
+
+  function num(d, key) {
+    var v = parseInt(d[key], 10);
+    return isNaN(v) ? 0 : v;
+  }
+
+  // Received from Papyrus. The name is the contract with AoT_Card.FnCard.
+  window.AoTOnCard = function (payload) {
+    try {
+      var d = parse(payload);
+      var rank = num(d, "c_rank");
+      var maxRank = num(d, "c_maxrank");
+      var points = num(d, "c_points");
+      var step = parseInt(d["c_step"], 10);
+      if (isNaN(step)) { step = -1; }
+      var letter = LETTERS.charAt(rank) || "?";
+
+      setText("seal", letter);
+      setText("name", d["c_name"] ? d["c_name"] : "Adventurer");
+      setText("rankline", "Rank " + letter);
+
+      var pct = 0;
+      if (step > 0) { pct = Math.min(100, Math.floor(points * 100 / step)); }
+      if (rank >= maxRank) {
+        byId("bar").style.width = "100%";
+        setText("progtext", "Highest rank reached. Points this rank: " + points);
+      } else if (step < 0) {
+        byId("bar").style.width = "0";
+        setText("progtext", "Points this rank: " + points);
+      } else {
+        byId("bar").style.width = pct + "%";
+        setText("progtext", "Points " + points + " / " + step + " toward rank " + (LETTERS.charAt(rank + 1) || "?"));
+      }
+      byId("exam").style.display = (num(d, "c_exam") === 1 && rank < maxRank) ? "block" : "none";
+
+      setText("done", num(d, "c_done"));
+      setText("open", num(d, "c_open"));
+      setText("failed", num(d, "c_failed"));
+      setText("lost", num(d, "c_lost"));
+
+      var tb = byId("bands");
+      while (tb.firstChild) { tb.removeChild(tb.firstChild); }
+      for (var b = 0; b < BAND_NAMES.length; b++) {
+        var parts = String(d["c_band" + b] === undefined ? "0,0" : d["c_band" + b]).split(",");
+        var paid = parts[0] === "1";
+        var tr = document.createElement("tr");
+        var c1 = document.createElement("td"); c1.textContent = BAND_NAMES[b];
+        var c2 = document.createElement("td"); c2.textContent = paid ? "paid" : "not paid"; c2.className = paid ? "paid" : "unpaid";
+        var c3 = document.createElement("td"); c3.textContent = parts.length > 1 ? parts[1] : "0";
+        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3);
+        tb.appendChild(tr);
+      }
+
+      // className, not classList: a plain assignment exists in both engines.
+      byId("card").className = "ready";
+
+      // Announce again after EVERY payload: the first announce has a budget of
+      // tries per page load, and the view outlives the first opening.
+      var back = resolve("AoTCardAction");
+      if (back !== null) { back.fn("ready-" + back.via); }
+      send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length);
+    } catch (err) {
+      byId("card").className = "";
+      send("AoTCardLog", "render error: " + err.message);
+    }
+  };
+
+  window.onerror = function (message, source, line) {
+    send("AoTCardLog", "js-error: " + message + " at " + line);
+    return false;
+  };
+
+  // Closing is panel chrome, not a guild action (D-23).
+  function closeCard() { send("AoTCardAction", "close"); }
+  byId("close").onclick = closeCard;
+  document.onkeydown = function (ev) {
+    var e = ev || window.event;
+    if (e.keyCode === 27) { closeCard(); }
+  };
+
+  // THE HANDSHAKE: announce on load and retry, because window.AoTCardAction is
+  // injected by the backend when Papyrus registers the listener, which can
+  // happen AFTER this script ran. The retry removes a race that leaves no log.
+  var tries = 0;
+  function announce() {
+    var r = resolve("AoTCardAction");
+    if (r !== null) { r.fn("ready-" + r.via); return; }
+    tries += 1;
+    if (tries < 50) { window.setTimeout(announce, 100); }
+  }
+  announce();
+}());
+</script>
+</body>
+</html>
