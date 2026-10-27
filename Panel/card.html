@@ -131,6 +131,7 @@
   window.AoTOnCard = function (payload) {
     try {
       var d = parse(payload);
+      hotkey = num(d, "hotkey");
       var rank = num(d, "c_rank");
       var maxRank = num(d, "c_maxrank");
       var points = num(d, "c_points");
@@ -199,9 +200,12 @@
   // Closing is panel chrome, not a guild action (D-23).
   function closeCard() { send("AoTCardAction", "close"); }
   byId("close").onclick = closeCard;
+  // The key that opens the card also closes it. The page does not know the
+  // code: it arrives in the payload ("hotkey"), and without it only Esc closes.
+  var hotkey = 0;
   document.onkeydown = function (ev) {
     var e = ev || window.event;
-    if (e.keyCode === 27) { closeCard(); }
+    if (e.keyCode === 27 || (hotkey > 0 && e.keyCode === hotkey)) { closeCard(); }
   };
 
   // THE HANDSHAKE: announce on load and retry, because window.AoTCardAction is

@@ -52,11 +52,13 @@ Event OnKeyDown(Int aiKeyCode)
 	If aiKeyCode != HotkeyCode
 		Return
 	EndIf
-	If Utility.IsInMenuMode() || UI.IsTextInputEnabled()
+	; Closing our own panel is never a game action: it comes BEFORE the menu
+	; guard, which only gates opening (a focused view may read as menu mode).
+	If _visible || _awaitingHello
+		ClosePanel("key")
 		Return
 	EndIf
-	If _visible || _awaitingHello
-		ClosePanel()
+	If Utility.IsInMenuMode() || UI.IsTextInputEnabled()
 		Return
 	EndIf
 	OpenCard()
@@ -164,7 +166,7 @@ Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 		EndIf
 		RegisterForSingleUpdate(WatchdogSeconds)
 	ElseIf StringUtil.Find(act, "close") == 0
-		ClosePanel()
+		ClosePanel("page")
 	EndIf
 EndEvent
 
@@ -218,7 +220,7 @@ Event OnUpdate()
 	EndIf
 	; Lost the focus (panic key, load, a pausing menu). Do not ask it back.
 	Debug.Trace("[AoT] Card: focus lost, closing the panel")
-	ClosePanel()
+	ClosePanel("watchdog")
 EndEvent
 
 Function HideQuiet()
@@ -227,13 +229,31 @@ Function HideQuiet()
 	_visible = False
 EndFunction
 
-Function ClosePanel()
+Function ClosePanel(String asVia)
+	{asVia says who closed it: "key", "page" or "watchdog". The line is written
+	only when there was something to close.}
+	Bool hadPanel = _visible || _awaitingHello
 	_wanted = False
 	_awaitingHello = False
 	If !_visible
+		If hadPanel
+			Debug.Trace("[AoT] Card: closed by " + asVia)
+		EndIf
 		Return
 	EndIf
 	HideQuiet()
+	Debug.Trace("[AoT] Card: closed by " + asVia)
+EndFunction
+
+Int Function BrowserKeyCode(Int aiScanCode)
+	{DirectX scan code to the browser keyCode the page sees: F1-F10 (59-68) are
+	112-121, F11/F12 (87/88) are 122/123. 0 = unknown, the page then keeps Esc only.}
+	If aiScanCode >= 59 && aiScanCode <= 68
+		Return aiScanCode + 53
+	ElseIf aiScanCode == 87 || aiScanCode == 88
+		Return aiScanCode + 35
+	EndIf
+	Return 0
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -274,6 +294,7 @@ String Function BuildPayload()
 
 	String eol = StringUtil.AsChar(10)
 	String text = "c_name|" + Game.GetPlayer().GetDisplayName() + eol
+	text += "hotkey|" + BrowserKeyCode(HotkeyCode) + eol
 	text += "c_rank|" + rank + eol
 	text += "c_maxrank|" + AoT_Core.MaxRank() + eol
 	text += "c_points|" + AoT_Core.GetPoints() + eol
