@@ -72,6 +72,10 @@ Contract states: 1 open, 2 completed, 3 abandoned, 4 expired.
 | `Int ContractDelta(Int id)` | points the contract actually applied, after the floor; 0 while open |
 | `Int FindOpenContract(Quest q)` | id of the open contract of `q`, or 0 |
 | `Int SchemaVersion()` | persisted-format version in this save; 0 if the core never wrote |
+| `Int JoinedDay()` | the game day the player joined the guild (the day of the first contract, or of the first read in a save that predates the stamp); kept from then on |
+| `Int CardSlots()` | how many perk-tree columns the card shows at most (5) |
+| `String GetCardTree(Int slot)` | the skill (engine enum name, e.g. `OneHanded`) chosen for a card column; `""` when empty |
+| `Int SkillCount()`, `String SkillEnumName(Int i)`, `Int SkillLevel(String skill)` | the 18 skills by enum name, and the player's level in one |
 
 ### Writes
 
@@ -84,6 +88,7 @@ Contract states: 1 open, 2 completed, 3 abandoned, 4 expired.
 | `Bool MarkBandPaid(Int band)` | records the fee of `band`; true only the first time |
 | `Bool Promote()` | the exam's outcome: rank + 1, points restart at 0. Refused unless eligible |
 | `Int AdjustPoints(Int delta)` | low level, floored, **not** idempotent; returns the delta applied |
+| `Bool SetCardTree(Int slot, String skill)` | chooses the skill of a card column; `""` empties it. Refused (False) for a bad slot, for a skill already in another column, or when the save is newer than this build |
 
 **Every contract event acts once.** An event changes only an open contract,
 and the event claims the contract by removing its id from `aot_open` with
@@ -130,7 +135,9 @@ than its own refuses to write.
 
 | Key | Type | Holder | Content |
 |---|---|---|---|
-| `aot_schema` | Int | global | persisted-format version, 1 |
+| `aot_schema` | Int | global | persisted-format version, 2 (a save at 1 is migrated on its first write; no other key changes) |
+| `aot_joined_day` | Int | global | game day the player joined (schema 2) |
+| `aot_card_tree_0` to `aot_card_tree_4` | String | global | skill chosen for each card column; absent or empty = none (schema 2) |
 | `aot_rank` | Int | global | the rank; its only writer is `Promote()` |
 | `aot_points` | Int | global | points inside the current rank |
 | `aot_bands_paid` | Int list | global | bands whose fee was paid |
@@ -146,15 +153,18 @@ division decodes it. Zero is never a valid entry, id or state, because
 Eligibility, career totals and per-state counts are derived from these keys
 and are never stored.
 
-## The adventurer card (`AoT_Card`, `Panel/card.html`)
+## The adventurer card (`AoT_Card`, `Panel/card.html`, `AoT_MCM`)
 
-A read-only, one-screen web panel with the player's own record (rank, points toward the next rank, promotion exam ready, contracts completed / failed / in progress, points lost, fee status and completions by band). It reads `AoT_Core` at every opening and keeps no state of its own. It has no action on the guild.
+A one-screen web panel with the player's own record (rank, level, joined date, points toward the next rank, promotion exam ready, contracts completed / in progress / failed, fee status) and the perk trees the player chose. It reads `AoT_Core` at every opening and keeps no guild state of its own, and it has no action on the guild. The one thing it does is spend a perk point: a click on a node asks `Lodestone.TryBuyPerk`, which buys in one atomic step or changes nothing.
 
 - Opens on a hotkey (F7, DirectX scan code 65, `AoT_Card.HotkeyCode`). The same key closes it, and so do Esc and the Close button.
-- Goes through the Lodestone `WebUI*` bridge, so it works on Meridian UI and on Prisma UI. Two version floors, never one number: `WebUIMinVersion` 1023000 for the web surface and `WebUIFocusMinVersion` 1022000 for focus; it also asks `WebUIHasCapability("view-focus")`. Without them the key shows the same facts in a message box.
+- Goes through the Lodestone `WebUI*` bridge. Version floors, never one number: `WebUIMinVersion` 1023000 for the web surface, `WebUIFocusMinVersion` 1022000 for focus, and `PerkMinVersion` 1037000 for the perk surface; it also asks `WebUIHasCapability("view-focus")`. Without the web floors the key shows the same facts in a message box; without the perk floor the card opens with no trees and says so.
 - Handshake: the view is shown first and focus is asked only after the page itself calls `AoTCardAction("ready-...")` (a loaded page is not necessarily our page). No answer in 6 s: hide, no focus, message box. A watchdog polls `WebUIIsViewFocused` every second and closes the panel if the focus is gone.
-- The page is one file, `Panel/card.html`, packed twice: `MeridianUI/AdventurersOfTamriel/card.html` and `PrismaUI/views/AdventurersOfTamriel/card.html`.
-- Plugin `AdventurersOfTamriel_Card.esp` carries the Start Game Enabled quest `AoT_CardQuest` with the `AoT_Card` script. Not installed means no card; the core `.esl` is not touched.
+- Payloads are partial: a header first, then `c_trees|N`, then one payload per column, so the first tree draws while the next ones are still being read. The page asks nothing of the game's rules: the state of every node (0 locked, 1 can buy, 2 owned, 3 partly owned and the next rank can be bought, 4 partly owned) comes from Papyrus, which reads `HasPerk` and `IsPerkEligible` per node. A tree node is the first rank of a perk; later ranks hang on `Perk.GetNextPerk`, and the perk bought next is the one after the highest rank owned.
+- A buy is `AoTCardAction("buy|column|node")`. Papyrus re-reads the tree of that column, works out the perk, calls `TryBuyPerk`, logs `[AoT] Card: buy ... points before -> after, owned` and pushes the column again.
+- Which trees: the skills chosen in the MCM page (`AoT_MCM`, five menus, each listing the skills whose tree is loaded plus "(none)"; the same skill is refused twice). With every menu on "(none)" the card shows the five skills of highest level. The choice lives in the save, never in a script.
+- The page is `Panel/card.html` plus `Panel/fonts/` (Cinzel 500 and 700 as `.woff2`, `OFL.txt` with the license; no request leaves the page). The whole folder is packed for `PrismaUI/views/AdventurersOfTamriel/` (the backend the card is tested on), `Magelight/AdventurersOfTamriel/` and `MeridianUI/AdventurersOfTamriel/` (same page; Meridian UI is discontinued and no longer tested or packaged). ES5 only, so the same file runs on all of them.
+- Plugin `AdventurersOfTamriel_Card.esp` carries two Start Game Enabled quests: `AoT_CardQuest` (script `AoT_Card`) and `AoT_MCMQuest` (script `AoT_MCM`, a SkyUI `SKI_ConfigBase`). Not installed means no card and no settings page; the core `.esl` is not touched.
 
 ## The Missives adapter (soft dependency, D-35)
 

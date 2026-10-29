@@ -1,6 +1,8 @@
 Scriptname AoT_Card extends Quest
-{Adventurer card: a read-only web panel (one screen) with the player's own guild record.
-Opens on a hotkey through the Lodestone WebUI bridge. It never writes to the guild (D-23).
+{Adventurer card: a web panel (one screen) with the player's own guild record and the
+perk trees the player chose (D016). It never writes to the guild (D-23); the one thing
+it does is spend a perk point on a click, through Lodestone.TryBuyPerk (D-25, E-10).
+Opens on a hotkey through the Lodestone WebUI bridge.
 The handshake, the watchdog and the fallback are the same ones Intelligence Matters uses
 for its journal panel (IM_SpellResearch, "O APERTO DE MAO" and OnUpdate), copied here.}
 
@@ -25,6 +27,9 @@ String Property EvtReady   = "LodestoneWebUIViewReady" AutoReadOnly
 ; IM_Core.WebUIMinVersion); 1022000 (1.22.0) is where WebUIFocusView exists.
 Int Property WebUIMinVersion      = 1023000 AutoReadOnly
 Int Property WebUIFocusMinVersion = 1022000 AutoReadOnly
+; 1037000 (1.37.0) is the perk module (GetPerkPoints, TryBuyPerk, GetPerkTree*).
+; Below it the card opens without trees and says why.
+Int Property PerkMinVersion       = 1037000 AutoReadOnly
 
 ; DirectX scan code of the hotkey: 65 is F7.
 Int Property HotkeyCode = 65 AutoReadOnly
@@ -43,6 +48,14 @@ Bool _pending       = False
 Bool _visible       = False
 Bool _wanted        = False
 Bool _awaitingHello = False
+
+; The skills drawn right now, one per column, filled at every opening. A buy
+; click names a column and a node index; the index is only meaningful against
+; the tree of THAT skill, read again at click time (same order every call).
+String[] _skills
+Int _skillCount = 0
+; Set by NextToBuy: the position in the rank chain of the highest owned rank.
+Int _lastHighest = -1
 
 Event OnInit()
 	RegisterForKey(HotkeyCode)
@@ -148,6 +161,23 @@ Function Push()
 	Lodestone.WebUICall(ViewId, FnCard, BuildPayload())
 EndFunction
 
+Function PushTrees()
+	{One call per column, so the card draws as each tree is read: reading the states
+	costs native calls and the player should see the first column early. Stops when
+	the panel closes in the middle.}
+	If !PerkOk()
+		Return
+	EndIf
+	_skillCount = ResolveTrees()
+	; The page lays out its columns from this count before any tree arrives.
+	Lodestone.WebUICall(ViewId, FnCard, "c_trees|" + _skillCount)
+	Int slot = 0
+	While slot < _skillCount && _visible
+		Lodestone.WebUICall(ViewId, FnCard, BuildTree(slot))
+		slot += 1
+	EndWhile
+EndFunction
+
 Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 	String act = Unwrap(asAction)
 	If StringUtil.Find(act, "ready") == 0
@@ -165,8 +195,14 @@ Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 			Return
 		EndIf
 		RegisterForSingleUpdate(WatchdogSeconds)
+		PushTrees()
 	ElseIf StringUtil.Find(act, "close") == 0
 		ClosePanel("page")
+	ElseIf StringUtil.Find(act, "buy|") == 0
+		String[] parts = PapyrusUtil.StringSplit(act, "|")
+		If parts.Length == 3
+			BuyPerk(parts[1] as Int, parts[2] as Int)
+		EndIf
 	EndIf
 EndEvent
 
@@ -295,6 +331,14 @@ String Function BuildPayload()
 	String eol = StringUtil.AsChar(10)
 	String text = "c_name|" + Game.GetPlayer().GetDisplayName() + eol
 	text += "hotkey|" + BrowserKeyCode(HotkeyCode) + eol
+	text += "c_level|" + Game.GetPlayer().GetLevel() + eol
+	text += "c_joined|" + AoT_Core.JoinedDay() + eol
+	If PerkOk()
+		text += "c_perkok|1" + eol
+		text += "c_pp|" + PerkPoints() + eol
+	Else
+		text += "c_perkok|0" + eol
+	EndIf
 	text += "c_rank|" + rank + eol
 	text += "c_maxrank|" + AoT_Core.MaxRank() + eol
 	text += "c_points|" + AoT_Core.GetPoints() + eol
@@ -320,11 +364,216 @@ String Function BuildPayload()
 	Return text
 EndFunction
 
+; ---------------------------------------------------------------------------
+; Perk trees (E-10). Every read here is a Lodestone native: one call returns a
+; whole tree, but HasPerk / IsPerkEligible are one call per perk, so the states
+; are timed and traced (MEDIDO), and a tree is pushed as soon as it is read.
+; ---------------------------------------------------------------------------
+
+Bool Function PerkOk()
+	Return Lodestone.GetVersion() >= PerkMinVersion
+EndFunction
+
+Int Function PerkPoints()
+	{The engine's unspent points; -1 (player not available) reads as 0.}
+	Int pp = Lodestone.GetPerkPoints()
+	If pp < 0
+		Return 0
+	EndIf
+	Return pp
+EndFunction
+
+Int Function ResolveTrees()
+	{Fills _skills with the skills to draw and returns how many. The chosen skills
+	(MCM, D016) whose tree is loaded; with none, the five of highest level.}
+	_skills = new String[5]
+	Int n = 0
+	Int slot = 0
+	While slot < AoT_Core.CardSlots()
+		String chosen = AoT_Core.GetCardTree(slot)
+		If chosen != ""
+			If Lodestone.GetPerkTreePerks(chosen).Length > 0
+				_skills[n] = chosen
+				n += 1
+			EndIf
+		EndIf
+		slot += 1
+	EndWhile
+	If n > 0
+		Return n
+	EndIf
+
+	String[] names = new String[18]
+	Int[] levels = new Int[18]
+	Int found = 0
+	Int i = 0
+	While i < AoT_Core.SkillCount()
+		String nm = AoT_Core.SkillEnumName(i)
+		If Lodestone.GetPerkTreePerks(nm).Length > 0
+			names[found] = nm
+			levels[found] = AoT_Core.SkillLevel(nm)
+			found += 1
+		EndIf
+		i += 1
+	EndWhile
+	While n < 5 && n < found
+		Int best = -1
+		Int j = 0
+		While j < found
+			If names[j] != ""
+				If best < 0
+					best = j
+				ElseIf levels[j] > levels[best]
+					best = j
+				EndIf
+			EndIf
+			j += 1
+		EndWhile
+		_skills[n] = names[best]
+		names[best] = ""
+		n += 1
+	EndWhile
+	Return n
+EndFunction
+
+Perk Function NextToBuy(Perk akHead)
+	{A tree node is the first rank of a perk; later ranks hang on GetNextPerk. The
+	perk to buy next is the one after the highest rank owned, the head when none is
+	owned, None when the chain is complete. Sets _lastHighest (-1 when none owned).}
+	_lastHighest = -1
+	Perk target = akHead
+	Perk cur = akHead
+	Int pos = 0
+	While cur != None && pos < 16
+		If Lodestone.HasPerk(cur)
+			_lastHighest = pos
+			target = cur.GetNextPerk()
+		EndIf
+		cur = cur.GetNextPerk()
+		pos += 1
+	EndWhile
+	Return target
+EndFunction
+
+Int Function NodeState(Perk akHead, Int aiPoints)
+	{0 locked, 1 can buy, 2 owned (chain complete), 3 partly owned and the next rank
+	can be bought, 4 partly owned and it cannot.}
+	Perk target = NextToBuy(akHead)
+	Int highest = _lastHighest
+	If target == None
+		Return 2
+	EndIf
+	Bool canBuy = False
+	If aiPoints > 0
+		canBuy = Lodestone.IsPerkEligible(target)
+	EndIf
+	If highest >= 0
+		If canBuy
+			Return 3
+		EndIf
+		Return 4
+	EndIf
+	If canBuy
+		Return 1
+	EndIf
+	Return 0
+EndFunction
+
+String Function BuildTree(Int aiSlot)
+	{One column: skill, level, and per-node parallel lists. Names are joined by "^",
+	numbers by ",". The index of a node is its position in GetPerkTreePerks.}
+	String skill = _skills[aiSlot]
+	Float t0 = Utility.GetCurrentRealTime()
+	Perk[] perks = Lodestone.GetPerkTreePerks(skill)
+	Int[] gx = Lodestone.GetPerkTreeGridX(skill)
+	Int[] gy = Lodestone.GetPerkTreeGridY(skill)
+	String[] pn = Lodestone.GetPerkTreeNames(skill)
+	Int[] edges = Lodestone.GetPerkTreeEdges(skill)
+	Int pp = PerkPoints()
+	Int n = perks.Length
+
+	String xs = ""
+	String ys = ""
+	String ss = ""
+	String nm = ""
+	Int i = 0
+	While i < n
+		If i > 0
+			xs += ","
+			ys += ","
+			ss += ","
+			nm += "^"
+		EndIf
+		xs += gx[i]
+		ys += gy[i]
+		ss += NodeState(perks[i], pp)
+		nm += pn[i]
+		i += 1
+	EndWhile
+	String es = ""
+	i = 0
+	While i < edges.Length
+		If i > 0
+			es += ","
+		EndIf
+		es += edges[i]
+		i += 1
+	EndWhile
+
+	String eol = StringUtil.AsChar(10)
+	String k = "t" + aiSlot + "_"
+	String text = "c_pp|" + pp + eol
+	text += k + "skill|" + skill + eol
+	text += k + "lvl|" + AoT_Core.SkillLevel(skill) + eol
+	text += k + "n|" + n + eol
+	text += k + "x|" + xs + eol
+	text += k + "y|" + ys + eol
+	text += k + "s|" + ss + eol
+	text += k + "names|" + nm + eol
+	text += k + "e|" + es + eol
+	Debug.Trace("[AoT] Card: tree " + skill + " nodes=" + n + " edges=" + (edges.Length / 2) + " points=" + pp + " read in " + (Utility.GetCurrentRealTime() - t0) + " s")
+	Return text
+EndFunction
+
+Function BuyPerk(Int aiSlot, Int aiIndex)
+	{A click on a node the page drew as buyable. The page decides nothing: the state
+	is read again here, and TryBuyPerk re-checks everything. The line is the MEDIDO
+	of the buy: points before and after, and whether the perk is owned.}
+	If !_visible || !PerkOk() || _skills == None
+		Return
+	EndIf
+	If aiSlot < 0 || aiSlot >= _skillCount
+		Debug.Trace("[AoT] Card: buy refused, bad column " + aiSlot)
+		Return
+	EndIf
+	String skill = _skills[aiSlot]
+	Perk[] perks = Lodestone.GetPerkTreePerks(skill)
+	If aiIndex < 0 || aiIndex >= perks.Length
+		Debug.Trace("[AoT] Card: buy refused, bad node " + aiIndex + " in " + skill)
+		Return
+	EndIf
+	Perk target = NextToBuy(perks[aiIndex])
+	Int before = PerkPoints()
+	Bool bought = False
+	If target != None
+		bought = Lodestone.TryBuyPerk(target)
+	EndIf
+	Int after = PerkPoints()
+	Bool owned = False
+	If target != None
+		owned = Lodestone.HasPerk(target)
+	EndIf
+	Debug.Trace("[AoT] Card: buy skill=" + skill + " node=" + aiIndex + " perk=" + target + " bought=" + bought + " points " + before + " -> " + after + " owned=" + owned)
+	If _visible
+		Lodestone.WebUICall(ViewId, FnCard, BuildTree(aiSlot))
+	EndIf
+EndFunction
+
 Function ShowPlain()
 	{Where the panel is not possible (no backend, old DLL, focus refused, page
 	dead): the same facts as a message box, so the key never ends in nothing.}
 	String rankLetter = RankLetter(AoT_Core.GetRank())
-	String text = "Adventurer card - rank " + rankLetter + ". Points " + AoT_Core.GetPoints()
+	String text = "Adventurer card - rank " + rankLetter + ", level " + Game.GetPlayer().GetLevel() + ". Points " + AoT_Core.GetPoints()
 	Int step = AoT_Core.LadderStep(AoT_Core.GetRank())
 	If step >= 0
 		text += " / " + step

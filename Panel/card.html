@@ -4,88 +4,143 @@
 <meta charset="utf-8">
 <title>Adventurers of Tamriel - card</title>
 <!--
-  The adventurer card: ONE screen, read-only. It shows the player's own record
-  and nothing else; there is no action on the guild here (design D-23).
+  The adventurer card: ONE screen. It shows the player's own record (rank, level,
+  joined date, contracts) and the perk trees the player chose, and it does ONE
+  thing: a click on a node that can be bought asks the game to buy it
+  (AoTCardAction("buy|column|node")). Nothing here touches the guild (design D-23).
+  The page decides nothing: the state of every node comes from the game, and the
+  game re-reads it and answers with the new tree.
 
-  Written for two engines: Meridian UI and Prisma UI (Ultralight). So: ES5 only,
-  no external file, no font download, className instead of classList.
+  Written for the engines that run Lodestone's WebUI bridge: Prisma UI (the measured
+  one), Meridian UI and Magelight UI (Ultralight / Chromium). So: ES5 only, no
+  external request (the two fonts sit in ./fonts, see OFL.txt there), className
+  instead of classList. The layout (cardstock, frame, columns) follows the reference
+  design D; every value on screen comes from the payload.
 
   THE PAGE'S SIDE OF THE HANDSHAKE (copied in spirit from the Intelligence
   Matters research panel): the page announces itself with AoTCardAction("ready-..")
   as soon as it loads, and again after every payload. Papyrus shows nothing
   focusable and asks for no focus until that arrives, so a page that failed to
   load (an error page loads "successfully") can never trap the player.
+
+  PAYLOADS ARE PARTIAL: the header comes first (it carries c_name), then one payload
+  per tree column. The page keeps what it received and draws from that.
 -->
 <style>
-  :root { --bg:#14110d; --panel:#211b14; --edge:#6b5a3a; --ink:#e8dcc0; --dim:#9a8c70; --gold:#d6b25e; --bar:#3a2f1f; --ok:#7fae6a; --bad:#b4574a; }
-  html, body { margin:0; padding:0; width:100%; height:100%; background:transparent; color:var(--ink); font-family:Georgia, "Times New Roman", serif; }
-  #shade { position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.55); }
-  #card { position:absolute; left:50%; top:50%; width:760px; margin-left:-380px; margin-top:-300px; box-sizing:border-box; padding:28px 34px; background:var(--panel); border:3px solid var(--edge); border-radius:6px; opacity:0; }
+  @font-face { font-family: "AoT Cinzel"; font-weight: 500; src: url("fonts/cinzel-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "AoT Cinzel"; font-weight: 700; src: url("fonts/cinzel-latin-700-normal.woff2") format("woff2"); }
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#f1e8cf; font-family:Georgia, "Times New Roman", serif; }
+  #shade { position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); }
+  #card { position:absolute; left:50%; top:50%; width:1040px; height:710px; margin-left:-520px; margin-top:-355px; box-sizing:border-box; padding:34px 44px 22px; background-color:#1c4a40; background-image:radial-gradient(ellipse at 28% 18%, rgba(255,255,255,0.07), rgba(255,255,255,0) 58%); border-radius:10px; box-shadow:inset 0 0 90px rgba(0,0,0,0.38), 0 22px 44px rgba(0,0,0,0.65); opacity:0; }
   #card.ready { opacity:1; }
-  #head { overflow:hidden; border-bottom:1px solid var(--edge); padding-bottom:18px; margin-bottom:18px; }
-  #seal { float:left; width:112px; height:112px; border-radius:56px; border:4px solid var(--gold); background:var(--bar); text-align:center; line-height:112px; font-size:64px; color:var(--gold); margin-right:26px; }
-  #who { overflow:hidden; }
-  #name { font-size:30px; margin:6px 0 4px 0; }
-  #rankline { font-size:18px; color:var(--dim); }
-  #close { float:right; border:1px solid var(--edge); background:var(--bar); color:var(--ink); padding:4px 14px; font-family:inherit; font-size:15px; }
-  h2 { font-size:15px; font-weight:normal; letter-spacing:2px; text-transform:uppercase; color:var(--gold); margin:16px 0 8px 0; }
-  #barwrap { height:18px; background:var(--bar); border:1px solid var(--edge); }
-  #bar { height:18px; width:0; background:var(--gold); }
-  #progtext { margin-top:6px; font-size:16px; }
-  #exam { margin-top:6px; color:var(--ok); font-size:16px; display:none; }
-  .grid { overflow:hidden; }
-  .cell { float:left; width:25%; box-sizing:border-box; padding:6px 8px 6px 0; }
-  .num { font-size:28px; }
-  .lbl { font-size:13px; color:var(--dim); }
-  .bad .num { color:var(--bad); }
-  table { width:100%; border-collapse:collapse; font-size:15px; }
-  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--bar); font-weight:normal; }
-  th { color:var(--dim); font-size:13px; }
-  .paid { color:var(--ok); }
-  .unpaid { color:var(--dim); }
-  #hint { margin-top:14px; font-size:12px; color:var(--dim); text-align:right; }
+  .frame1 { position:absolute; left:12px; top:12px; right:12px; bottom:12px; border:1px solid #d9cfa8; border-radius:4px; }
+  .frame2 { position:absolute; left:17px; top:17px; right:17px; bottom:17px; border:1px solid rgba(217,207,168,0.4); border-radius:2px; }
+  .gem { position:absolute; width:9px; height:9px; background:#d9cfa8; -webkit-transform:rotate(45deg); transform:rotate(45deg); }
+  .cin { font-family:"AoT Cinzel", Georgia, serif; }
+
+  #top { position:relative; height:166px; }
+  #diamond { position:absolute; left:6px; top:6px; width:112px; height:112px; box-sizing:border-box; padding:4px; border:1px solid #d9cfa8; -webkit-transform:rotate(45deg); transform:rotate(45deg); }
+  #diamondIn { width:100%; height:100%; box-sizing:border-box; padding:4px; border:1px solid rgba(217,207,168,0.4); }
+  #portrait { position:relative; width:100%; height:100%; overflow:hidden; background:#12302a; box-shadow:inset 0 3px 8px rgba(0,0,0,0.65); }
+  #portrait svg { position:absolute; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; -webkit-transform:rotate(-45deg); transform:rotate(-45deg); }
+  #who { position:absolute; left:158px; top:6px; right:330px; }
+  #kicker { font-size:12px; letter-spacing:3px; color:#8fe3c0; }
+  #name { font-size:38px; font-weight:700; line-height:1.1; margin:6px 0 4px 0; white-space:nowrap; overflow:hidden; text-shadow:0 1px 0 rgba(0,0,0,0.45); }
+  #sub { font-size:18px; color:#c9dccf; }
+  #sub .big { font-size:26px; font-weight:700; color:#f1e8cf; }
+  #sub .sep { color:rgba(217,207,168,0.5); margin:0 12px; }
+  #prog { margin-top:14px; font-size:15px; color:#c9dccf; }
+  #barwrap { display:inline-block; vertical-align:middle; width:220px; height:7px; margin-left:12px; background:rgba(0,0,0,0.32); border-radius:4px; overflow:hidden; }
+  #bar { height:7px; width:0; background:#6fe3b4; }
+  #exam { margin-top:6px; font-size:14px; color:#7ff0c4; display:none; }
+  #ppbox { position:absolute; right:190px; top:12px; text-align:right; }
+  #pplabel { font-size:11px; letter-spacing:2px; color:#a9c9bd; }
+  #pp { font-size:54px; font-weight:700; line-height:1; color:#7ff0c4; text-shadow:0 1px 0 rgba(0,0,0,0.5); }
+  #stamp { position:absolute; right:14px; top:2px; width:116px; text-align:center; }
+  #ring { width:116px; height:116px; box-sizing:border-box; border-radius:58px; border:3px solid #b7a3ff; background:rgba(183,163,255,0.08); -webkit-transform:rotate(-9deg); transform:rotate(-9deg); }
+  #ring2 { width:92px; height:92px; box-sizing:border-box; margin:8px 0 0 8px; border-radius:46px; border:1px dashed rgba(183,163,255,0.8); text-align:center; }
+  #ring2 .r { display:block; padding-top:12px; font-size:10px; letter-spacing:3px; color:#b7a3ff; }
+  #rankletter { display:block; font-size:50px; font-weight:700; line-height:56px; color:#c9b9ff; }
+  #rankname { margin-top:6px; font-size:15px; letter-spacing:2px; color:#d9cfa8; }
+  .rule { height:4px; border-top:1px solid rgba(217,207,168,0.55); border-bottom:1px solid rgba(217,207,168,0.25); }
+
+  #cols { position:relative; height:420px; margin-top:12px; }
+  .col { position:absolute; top:0; height:420px; box-sizing:border-box; padding:12px 8px 8px; background:rgba(0,0,0,0.2); box-shadow:inset 0 2px 6px rgba(0,0,0,0.5); border-radius:6px; text-align:center; }
+  .box { position:relative; width:164px; height:300px; margin:0 auto; }
+  .edge { position:absolute; height:2px; background:rgba(143,227,192,0.35); -webkit-transform-origin:0 50%; transform-origin:0 50%; }
+  .edge.on { background:rgba(111,227,180,0.8); }
+  .node { position:absolute; width:22px; height:22px; box-sizing:border-box; padding:0; border-radius:11px; background:#163a33; border:2px solid #3f6b60; cursor:default; }
+  .node.s1, .node.s3 { border-color:#b7a3ff; box-shadow:0 0 6px rgba(183,163,255,0.7); cursor:pointer; }
+  .node.s2, .node.s3, .node.s4 { background:#6fe3b4; }
+  .node.s2 { border-color:#f1e8cf; }
+  .node.s4 { border-color:#f1e8cf; border-style:dashed; }
+  .node.nopoint { box-shadow:none; cursor:default; }
+  .cname { margin-top:8px; font-size:14px; color:#f1e8cf; }
+  .clvl { font-size:14px; color:#a9c9bd; }
+  .chover { margin-top:6px; height:34px; overflow:hidden; font-size:13px; line-height:16px; color:#d9cfa8; }
+  .note { position:absolute; left:0; right:0; top:170px; font-size:16px; color:#a9c9bd; text-align:center; }
+
+  #foot { position:absolute; left:44px; right:44px; bottom:22px; height:34px; border-top:1px solid rgba(217,207,168,0.4); padding-top:8px; font-size:15px; color:#a9c9bd; }
+  #foot .n { font-size:18px; font-weight:500; color:#f1e8cf; }
+  #foot .item { margin-right:22px; }
+  #legend { position:absolute; right:92px; top:12px; }
+  #legend .dot { display:inline-block; width:9px; height:9px; border-radius:6px; margin:0 6px 0 16px; vertical-align:middle; }
+  #close { position:absolute; right:0; top:6px; border:1px solid #d9cfa8; background:rgba(0,0,0,0.25); color:#f1e8cf; padding:3px 14px; font-family:inherit; font-size:14px; border-radius:3px; }
 </style>
 </head>
 <body>
 <div id="shade"></div>
 <div id="card">
-  <div id="head">
-    <button id="close" type="button">Close</button>
-    <div id="seal">?</div>
+  <div class="frame1"></div><div class="frame2"></div>
+  <div class="gem" style="left:8px;top:8px"></div><div class="gem" style="right:8px;top:8px"></div>
+  <div class="gem" style="left:8px;bottom:8px"></div><div class="gem" style="right:8px;bottom:8px"></div>
+
+  <div id="top">
+    <div id="diamond"><div id="diamondIn"><div id="portrait">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#9fc9bd" stroke-width="1.4"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg>
+    </div></div></div>
     <div id="who">
-      <div id="name">Adventurer</div>
-      <div id="rankline">Rank ?</div>
+      <div id="kicker" class="cin">Adventurers Guild - member card</div>
+      <div id="name" class="cin">Adventurer</div>
+      <div id="sub"><span>Level <span id="level" class="big cin">-</span></span><span class="sep">|</span><span id="joined">Joined -</span></div>
+      <div id="prog"><span id="progtext"></span><span id="barwrap"><span id="bar" style="display:block"></span></span></div>
+      <div id="exam">You have the points. The promotion exam is the next step.</div>
+    </div>
+    <div id="ppbox"><div id="pplabel">PERK POINTS</div><div id="pp" class="cin">-</div></div>
+    <div id="stamp">
+      <div id="ring"><div id="ring2"><span class="r cin">RANK</span><span id="rankletter" class="cin">?</span></div></div>
+      <div id="rankname" class="cin">Rank ?</div>
     </div>
   </div>
+  <div class="rule"></div>
 
-  <h2>Progress</h2>
-  <div id="barwrap"><div id="bar"></div></div>
-  <div id="progtext"></div>
-  <div id="exam">You have the points. The promotion exam is the next step.</div>
+  <div id="cols"></div>
 
-  <h2>Record</h2>
-  <div class="grid">
-    <div class="cell"><div class="num" id="done">0</div><div class="lbl">Contracts completed</div></div>
-    <div class="cell"><div class="num" id="open">0</div><div class="lbl">In progress</div></div>
-    <div class="cell bad"><div class="num" id="failed">0</div><div class="lbl">Contracts failed</div></div>
-    <div class="cell bad"><div class="num" id="lost">0</div><div class="lbl">Points lost</div></div>
+  <div id="foot">
+    <span class="item"><span id="done" class="n cin">0</span> completed</span>
+    <span class="item"><span id="open" class="n cin">0</span> in progress</span>
+    <span class="item"><span id="failed" class="n cin" style="color:#f2a0a0">0</span> failed</span>
+    <span id="fees">Fees: -</span>
+    <span id="legend"><span class="dot" style="background:#6fe3b4;border:1px solid #f1e8cf"></span>Owned<span class="dot" style="border:2px solid #b7a3ff"></span>Can buy</span>
+    <button id="close" type="button">Close</button>
   </div>
-
-  <h2>Fees by band</h2>
-  <table>
-    <tr><th>Band</th><th>Fee status</th><th>Completed</th></tr>
-    <tbody id="bands"></tbody>
-  </table>
-
-  <div id="hint">Esc closes the card</div>
 </div>
 
 <script>
 (function () {
   "use strict";
 
-  var BAND_NAMES = ["Low", "Medium", "High", "Very high", "Rank A own contract", "Rank S own contract"];
+  var BAND_NAMES = ["low", "medium", "high", "very high", "rank A", "rank S"];
   var LETTERS = "FEDCBAS";
+  var MONTHS = ["Morning Star", "Sun's Dawn", "First Seed", "Rain's Hand", "Second Seed", "Midyear",
+                "Sun's Height", "Last Seed", "Hearthfire", "Frostfall", "Sun's Dusk", "Evening Star"];
+  var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  var STATE_WORD = ["locked", "can be bought", "owned", "next rank can be bought", "partly owned"];
+
+  // The state received so far. A header payload (it carries c_name) starts a new
+  // opening and clears the trees; tree payloads then add one column each.
+  var S = {};
+  var hotkey = 0;
 
   // TWO PLACES TO LOOK FOR THE CALLBACK: window.<fn> is an alias the bridge
   // writes over window.Lodestone.<fn>, and it can race. resolve() answers
@@ -105,7 +160,6 @@
   }
 
   function byId(id) { return document.getElementById(id); }
-
   function setText(id, text) { byId(id).textContent = String(text); }
 
   // Keys arrive in whatever case the game's string pool holds; compare lower.
@@ -127,55 +181,219 @@
     return isNaN(v) ? 0 : v;
   }
 
+  function nums(text) {
+    if (text === undefined || text === "") { return []; }
+    var p = String(text).split(",");
+    var out = [];
+    for (var i = 0; i < p.length; i++) { out.push(parseInt(p[i], 10) || 0); }
+    return out;
+  }
+
+  function clear(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+
+  function el(tag, cls) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    return e;
+  }
+
+  // "OneHanded" -> "One Handed"
+  function skillTitle(skill) { return String(skill).replace(/([a-z])([A-Z])/g, "$1 $2"); }
+
+  // Game day 0 is 17 Last Seed, 4E 201. The day arrives as a number; the date is
+  // worked out here because the calendar is plain arithmetic.
+  function dateText(day) {
+    var idx = 228 + day;
+    var year = 201 + Math.floor(idx / 365);
+    var doy = idx % 365;
+    var m = 0;
+    while (m < 11 && doy >= MONTH_DAYS[m]) { doy -= MONTH_DAYS[m]; m += 1; }
+    return (doy + 1) + " " + MONTHS[m] + ", 4E " + year;
+  }
+
+  function fit() {
+    var w = window.innerWidth || 1120;
+    var h = window.innerHeight || 780;
+    var s = Math.min(w / 1100, h / 760, 1);
+    var t = "scale(" + s + ")";
+    var c = byId("card");
+    c.style.webkitTransform = t;
+    c.style.transform = t;
+  }
+
+  // ------------------------------------------------------------------ header
+  function drawHeader() {
+    var rank = num(S, "c_rank");
+    var maxRank = num(S, "c_maxrank");
+    var points = num(S, "c_points");
+    var step = parseInt(S["c_step"], 10);
+    if (isNaN(step)) { step = -1; }
+    var letter = LETTERS.charAt(rank) || "?";
+
+    setText("name", S["c_name"] ? S["c_name"] : "Adventurer");
+    setText("level", S["c_level"] === undefined ? "-" : num(S, "c_level"));
+    setText("joined", S["c_joined"] === undefined ? "Joined -" : "Joined " + dateText(num(S, "c_joined")));
+    setText("rankletter", letter);
+    setText("rankname", "Rank " + letter);
+    setText("pp", S["c_perkok"] === "0" || S["c_pp"] === undefined ? "-" : num(S, "c_pp"));
+
+    var pct = 0;
+    if (step > 0) { pct = Math.min(100, Math.floor(points * 100 / step)); }
+    if (rank >= maxRank) {
+      byId("bar").style.width = "100%";
+      setText("progtext", "Highest rank reached. Points this rank: " + points);
+    } else if (step < 0) {
+      byId("bar").style.width = "0";
+      setText("progtext", "Points this rank: " + points);
+    } else {
+      byId("bar").style.width = pct + "%";
+      setText("progtext", "Points " + points + " / " + step + " toward rank " + (LETTERS.charAt(rank + 1) || "?"));
+    }
+    byId("exam").style.display = (num(S, "c_exam") === 1 && rank < maxRank) ? "block" : "none";
+
+    setText("done", num(S, "c_done"));
+    setText("open", num(S, "c_open"));
+    setText("failed", num(S, "c_failed"));
+    var paid = [];
+    for (var b = 0; b < BAND_NAMES.length; b++) {
+      var parts = String(S["c_band" + b] === undefined ? "0,0" : S["c_band" + b]).split(",");
+      if (parts[0] === "1") { paid.push(BAND_NAMES[b]); }
+    }
+    setText("fees", "Fees: " + (paid.length ? paid.join(", ") + " paid" : "none paid"));
+  }
+
+  // ------------------------------------------------------------------- trees
+  function onNodeClick(col, index, state) {
+    if ((state === 1 || state === 3) && num(S, "c_pp") > 0) {
+      send("AoTCardAction", "buy|" + col + "|" + index);
+    }
+  }
+
+  function drawColumn(parent, col, total) {
+    var width = Math.floor((960 - 16 * (total - 1)) / total);
+    var c = el("div", "col");
+    c.style.left = (col * (width + 16)) + "px";
+    c.style.width = width + "px";
+    parent.appendChild(c);
+
+    var pre = "t" + col + "_";
+    var box = el("div", "box");
+    c.appendChild(box);
+    var skill = S[pre + "skill"];
+    if (skill === undefined) {
+      var wait = el("div", "note");
+      wait.textContent = "Reading the tree...";
+      box.appendChild(wait);
+      return;
+    }
+
+    var n = num(S, pre + "n");
+    var xs = nums(S[pre + "x"]), ys = nums(S[pre + "y"]), ss = nums(S[pre + "s"]), es = nums(S[pre + "e"]);
+    var names = String(S[pre + "names"] === undefined ? "" : S[pre + "names"]).split("^");
+
+    var minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, i;
+    for (i = 0; i < n; i++) {
+      if (xs[i] < minx) { minx = xs[i]; }
+      if (xs[i] > maxx) { maxx = xs[i]; }
+      if (ys[i] < miny) { miny = ys[i]; }
+      if (ys[i] > maxy) { maxy = ys[i]; }
+    }
+    // Which way is "up" is read from the data: the children of a link sit higher
+    // than the parent, so the sign of the mean row step says which way the rows run.
+    var drift = 0;
+    for (i = 0; i + 1 < es.length; i += 2) { drift += ys[es[i + 1]] - ys[es[i]]; }
+    var upIsLarger = drift >= 0;
+    var spanx = Math.max(1, maxx - minx), spany = Math.max(1, maxy - miny);
+    var px = [], py = [];
+    for (i = 0; i < n; i++) {
+      var fx = (xs[i] - minx) / spanx;
+      var fy = (ys[i] - miny) / spany;
+      if (upIsLarger) { fy = 1 - fy; }
+      px.push(11 + fx * (164 - 22));
+      py.push(11 + fy * (300 - 22));
+    }
+
+    for (i = 0; i + 1 < es.length; i += 2) {
+      var a = es[i], b = es[i + 1];
+      if (a >= n || b >= n) { continue; }
+      var dx = px[b] - px[a], dy = py[b] - py[a];
+      var len = Math.sqrt(dx * dx + dy * dy);
+      var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      var edge = el("div", ss[a] >= 2 ? "edge on" : "edge");
+      edge.style.left = px[a] + "px";
+      edge.style.top = (py[a] - 1) + "px";
+      edge.style.width = len + "px";
+      edge.style.webkitTransform = "rotate(" + ang + "deg)";
+      edge.style.transform = "rotate(" + ang + "deg)";
+      box.appendChild(edge);
+    }
+
+    var canSpend = num(S, "c_pp") > 0;
+    var hover = el("div", "chover");
+    for (i = 0; i < n; i++) {
+      (function (idx) {
+        var st = ss[idx];
+        var node = el("button", "node s" + st + (canSpend ? "" : " nopoint"));
+        node.type = "button";
+        node.style.left = (px[idx] - 11) + "px";
+        node.style.top = (py[idx] - 11) + "px";
+        var label = (names[idx] ? names[idx] : "(unnamed perk)") + " - " + STATE_WORD[st];
+        node.onmouseover = function () { hover.textContent = label; };
+        node.onclick = function () { onNodeClick(col, idx, st); };
+        box.appendChild(node);
+      }(i));
+    }
+    var nm = el("div", "cname cin");
+    nm.textContent = skillTitle(skill);
+    var lv = el("div", "clvl");
+    lv.textContent = num(S, pre + "lvl") + " / 100";
+    c.appendChild(nm);
+    c.appendChild(lv);
+    c.appendChild(hover);
+  }
+
+  function drawTrees() {
+    var host = byId("cols");
+    clear(host);
+    if (S["c_perkok"] === "0") {
+      var old = el("div", "note");
+      old.textContent = "Perk trees need Lodestone 1.37.0 or newer.";
+      host.appendChild(old);
+      return;
+    }
+    if (S["c_trees"] === undefined) {
+      var wait = el("div", "note");
+      wait.textContent = "Reading the perk trees...";
+      host.appendChild(wait);
+      return;
+    }
+    var total = num(S, "c_trees");
+    if (total < 1) {
+      var none = el("div", "note");
+      none.textContent = "No perk tree is loaded.";
+      host.appendChild(none);
+      return;
+    }
+    for (var c = 0; c < total; c++) { drawColumn(host, c, total); }
+  }
+
   // Received from Papyrus. The name is the contract with AoT_Card.FnCard.
   window.AoTOnCard = function (payload) {
     try {
       var d = parse(payload);
-      hotkey = num(d, "hotkey");
-      var rank = num(d, "c_rank");
-      var maxRank = num(d, "c_maxrank");
-      var points = num(d, "c_points");
-      var step = parseInt(d["c_step"], 10);
-      if (isNaN(step)) { step = -1; }
-      var letter = LETTERS.charAt(rank) || "?";
-
-      setText("seal", letter);
-      setText("name", d["c_name"] ? d["c_name"] : "Adventurer");
-      setText("rankline", "Rank " + letter);
-
-      var pct = 0;
-      if (step > 0) { pct = Math.min(100, Math.floor(points * 100 / step)); }
-      if (rank >= maxRank) {
-        byId("bar").style.width = "100%";
-        setText("progtext", "Highest rank reached. Points this rank: " + points);
-      } else if (step < 0) {
-        byId("bar").style.width = "0";
-        setText("progtext", "Points this rank: " + points);
-      } else {
-        byId("bar").style.width = pct + "%";
-        setText("progtext", "Points " + points + " / " + step + " toward rank " + (LETTERS.charAt(rank + 1) || "?"));
+      if (d["c_name"] !== undefined) {
+        // A new opening: forget the old trees, keep nothing stale on screen.
+        for (var k in S) { if (S.hasOwnProperty(k) && k.charAt(0) === "t") { delete S[k]; } }
+        delete S["c_trees"];
       }
-      byId("exam").style.display = (num(d, "c_exam") === 1 && rank < maxRank) ? "block" : "none";
+      for (var key in d) { if (d.hasOwnProperty(key)) { S[key] = d[key]; } }
+      var h = num(S, "hotkey");
+      if (h > 0) { hotkey = h; }
+      fit();
+      drawHeader();
+      drawTrees();
 
-      setText("done", num(d, "c_done"));
-      setText("open", num(d, "c_open"));
-      setText("failed", num(d, "c_failed"));
-      setText("lost", num(d, "c_lost"));
-
-      var tb = byId("bands");
-      while (tb.firstChild) { tb.removeChild(tb.firstChild); }
-      for (var b = 0; b < BAND_NAMES.length; b++) {
-        var parts = String(d["c_band" + b] === undefined ? "0,0" : d["c_band" + b]).split(",");
-        var paid = parts[0] === "1";
-        var tr = document.createElement("tr");
-        var c1 = document.createElement("td"); c1.textContent = BAND_NAMES[b];
-        var c2 = document.createElement("td"); c2.textContent = paid ? "paid" : "not paid"; c2.className = paid ? "paid" : "unpaid";
-        var c3 = document.createElement("td"); c3.textContent = parts.length > 1 ? parts[1] : "0";
-        tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3);
-        tb.appendChild(tr);
-      }
-
-      // className, not classList: a plain assignment exists in both engines.
+      // className, not classList: a plain assignment exists in all engines.
       byId("card").className = "ready";
 
       // Announce again after EVERY payload: the first announce has a budget of
@@ -185,7 +403,10 @@
       // The ack echoes what the page DREW (read back from the DOM), not the raw payload.
       var drawnPoints = byId("progtext").textContent.match(/[0-9]+/);
       send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
-        "|rank=" + byId("seal").textContent + "|points=" + (drawnPoints ? drawnPoints[0] : "?"));
+        "|rank=" + byId("rankletter").textContent + "|points=" + (drawnPoints ? drawnPoints[0] : "?") +
+        "|level=" + byId("level").textContent + "|pp=" + byId("pp").textContent +
+        "|cols=" + byId("cols").getElementsByClassName("col").length +
+        "|nodes=" + byId("cols").getElementsByClassName("node").length);
     } catch (err) {
       byId("card").className = "";
       send("AoTCardLog", "render error: " + err.message);
@@ -197,12 +418,13 @@
     return false;
   };
 
+  window.onresize = fit;
+
   // Closing is panel chrome, not a guild action (D-23).
   function closeCard() { send("AoTCardAction", "close"); }
   byId("close").onclick = closeCard;
   // The key that opens the card also closes it. The page does not know the
   // code: it arrives in the payload ("hotkey"), and without it only Esc closes.
-  var hotkey = 0;
   document.onkeydown = function (ev) {
     var e = ev || window.event;
     if (e.keyCode === 27 || (hotkey > 0 && e.keyCode === hotkey)) { closeCard(); }
@@ -218,6 +440,7 @@
     tries += 1;
     if (tries < 50) { window.setTimeout(announce, 100); }
   }
+  fit();
   announce();
 }());
 </script>

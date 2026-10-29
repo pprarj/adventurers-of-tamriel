@@ -13,7 +13,7 @@ The persisted format is irreversible: see DEVELOPMENT.md, "Persisted state".}
 
 Int Function SchemaCode() Global
 	{Persisted-format version this build writes.}
-	Return 1
+	Return 2
 EndFunction
 
 String Function TablePath() Global
@@ -46,6 +46,108 @@ EndFunction
 Int Function GetPoints() Global
 	{Points earned inside the current rank. Never below 0.}
 	Return StorageUtil.GetIntValue(None, "aot_points", 0)
+EndFunction
+
+Int Function JoinedDay() Global
+	{Game day the player joined the guild (D015). A save that never stamped it gets
+	today's day on this first read, and keeps it from then on.}
+	If StorageUtil.HasIntValue(None, "aot_joined_day")
+		Return StorageUtil.GetIntValue(None, "aot_joined_day", 0)
+	EndIf
+	Int today = Utility.GetCurrentGameTime() as Int
+	If _CanWrite()
+		StorageUtil.SetIntValue(None, "aot_joined_day", today)
+	EndIf
+	Return today
+EndFunction
+
+Int Function CardSlots() Global
+	{How many perk trees the card shows at most.}
+	Return 5
+EndFunction
+
+Int Function SkillCount() Global
+	{The 18 skills, by the engine's enum names (the form Lodestone's perk-tree
+	functions take).}
+	Return 18
+EndFunction
+
+String Function SkillEnumName(Int aiIndex) Global
+	{Engine enum name of skill aiIndex (0 to 17); "" for a bad index.}
+	If aiIndex == 0
+		Return "OneHanded"
+	ElseIf aiIndex == 1
+		Return "TwoHanded"
+	ElseIf aiIndex == 2
+		Return "Marksman"
+	ElseIf aiIndex == 3
+		Return "Block"
+	ElseIf aiIndex == 4
+		Return "Smithing"
+	ElseIf aiIndex == 5
+		Return "HeavyArmor"
+	ElseIf aiIndex == 6
+		Return "LightArmor"
+	ElseIf aiIndex == 7
+		Return "Pickpocket"
+	ElseIf aiIndex == 8
+		Return "Lockpicking"
+	ElseIf aiIndex == 9
+		Return "Sneak"
+	ElseIf aiIndex == 10
+		Return "Alchemy"
+	ElseIf aiIndex == 11
+		Return "Speechcraft"
+	ElseIf aiIndex == 12
+		Return "Alteration"
+	ElseIf aiIndex == 13
+		Return "Conjuration"
+	ElseIf aiIndex == 14
+		Return "Destruction"
+	ElseIf aiIndex == 15
+		Return "Illusion"
+	ElseIf aiIndex == 16
+		Return "Restoration"
+	ElseIf aiIndex == 17
+		Return "Enchanting"
+	EndIf
+	Return ""
+EndFunction
+
+Int Function SkillLevel(String asSkill) Global
+	{The player's current level in a skill, by enum name.}
+	Return Game.GetPlayer().GetActorValue(asSkill) as Int
+EndFunction
+
+String Function GetCardTree(Int aiSlot) Global
+	{The skill (engine enum name, e.g. "OneHanded") the player put in slot aiSlot of the
+	card; "" when the slot is empty (the card then fills it, D016).}
+	If aiSlot < 0 || aiSlot >= CardSlots()
+		Return ""
+	EndIf
+	Return StorageUtil.GetStringValue(None, "aot_card_tree_" + aiSlot, "")
+EndFunction
+
+Bool Function SetCardTree(Int aiSlot, String asSkill) Global
+	{Puts a skill in a slot; "" empties it. False when the slot is bad, the same skill
+	already sits in another slot, or the save is newer than this build.}
+	If aiSlot < 0 || aiSlot >= CardSlots()
+		Return False
+	EndIf
+	If !_CanWrite()
+		Return False
+	EndIf
+	If asSkill != ""
+		Int i = 0
+		While i < CardSlots()
+			If i != aiSlot && GetCardTree(i) == asSkill
+				Return False
+			EndIf
+			i += 1
+		EndWhile
+	EndIf
+	StorageUtil.SetStringValue(None, "aot_card_tree_" + aiSlot, asSkill)
+	Return True
 EndFunction
 
 Int Function LadderStep(Int aiRank) Global
@@ -159,6 +261,7 @@ Int Function OpenContract(Quest akQuest, Int aiBand) Global
 	If openId > 0
 		Return openId
 	EndIf
+	JoinedDay()
 	Int idx = StorageUtil.IntListAdd(None, "aot_contracts", _Pack(1, aiBand, 0), True)
 	If idx < 0
 		Debug.Trace("[AoT] OpenContract: ledger append failed")
@@ -240,6 +343,12 @@ Bool Function _CanWrite() Global
 	If stored > SchemaCode()
 		Debug.Trace("[AoT] save schema " + stored + " is newer than this build (" + SchemaCode() + "): not writing")
 		Return False
+	EndIf
+	If stored < SchemaCode()
+		; Migration 1 -> 2 (D015): only added keys (aot_joined_day, aot_card_tree_N); nothing
+		; that version 1 wrote changes meaning, so the migration is the stamp itself.
+		StorageUtil.SetIntValue(None, "aot_schema", SchemaCode())
+		Debug.Trace("[AoT] save schema " + stored + " migrated to " + SchemaCode())
 	EndIf
 	Return True
 EndFunction
