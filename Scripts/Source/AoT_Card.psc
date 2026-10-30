@@ -33,6 +33,9 @@ Int Property PerkMinVersion       = 1037000 AutoReadOnly
 
 ; DirectX scan code of the hotkey: 65 is F7.
 Int Property HotkeyCode = 65 AutoReadOnly
+; DirectX scan code of Esc. Registered ONLY while the card is open or opening (D021):
+; with the card closed Esc belongs to the game and this mod does not listen.
+Int Property EscCode = 1 AutoReadOnly
 
 ; How long to wait for the page to announce itself before giving up on it.
 Float Property HelloSeconds    = 6.0 AutoReadOnly
@@ -62,6 +65,15 @@ Event OnInit()
 EndEvent
 
 Event OnKeyDown(Int aiKeyCode)
+	If aiKeyCode == EscCode
+		If _visible || _awaitingHello
+			ClosePanel("esc")
+		Else
+			; A registration left over from a save taken with the card open.
+			UnregisterForKey(EscCode)
+		EndIf
+		Return
+	EndIf
 	If aiKeyCode != HotkeyCode
 		Return
 	EndIf
@@ -107,6 +119,7 @@ Function OpenCard()
 	EndIf
 
 	_wanted = True
+	RegisterForKey(EscCode)
 	; Truth is the question, not the saved flag: after a load the view is gone.
 	If Lodestone.WebUIIsViewReady(ViewId)
 		OpenNow()
@@ -125,6 +138,7 @@ Function OpenCard()
 	If !Lodestone.WebUICreateView(ViewId, ViewPath)
 		_pending = False
 		_wanted = False
+		UnregisterForKey(EscCode)
 		Debug.Trace("[AoT] Card: WebUICreateView refused " + ViewPath)
 		ShowPlain()
 	EndIf
@@ -235,6 +249,7 @@ Event OnUpdate()
 		; The view never became ready: wrong path or a backend that went away.
 		_pending = False
 		_wanted = False
+		UnregisterForKey(EscCode)
 		Debug.Trace("[AoT] Card: view not ready in time, plain card")
 		ShowPlain()
 		Return
@@ -263,14 +278,16 @@ Function HideQuiet()
 	Lodestone.WebUIClearFocus(ViewId)
 	Lodestone.WebUIHide(ViewId)
 	_visible = False
+	UnregisterForKey(EscCode)
 EndFunction
 
 Function ClosePanel(String asVia)
-	{asVia says who closed it: "key", "page" or "watchdog". The line is written
+	{asVia says who closed it: "key", "esc", "page" or "watchdog". The line is written
 	only when there was something to close.}
 	Bool hadPanel = _visible || _awaitingHello
 	_wanted = False
 	_awaitingHello = False
+	UnregisterForKey(EscCode)
 	If !_visible
 		If hadPanel
 			Debug.Trace("[AoT] Card: closed by " + asVia)
