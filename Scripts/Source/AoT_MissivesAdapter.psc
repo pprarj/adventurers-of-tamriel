@@ -82,7 +82,7 @@ EndFunction
 
 Function PollOpenContracts()
     {Completion = stage 100 (all families), expiration = 103 (courier only),
-    failure = 105, cleanup = 110. A contract whose quest was cleaned up without
+    failure = 105 (counted as an expiration: their delivery was not met), cleanup = 110. A contract whose quest was cleaned up without
     any of the first three never stood: it closes void, with no points (D026).
     Walks back to front because aot_open loses the entry it closes.}
     int count = StorageUtil.IntListCount(None, "aot_open")
@@ -102,7 +102,7 @@ Function PollOpenContracts()
                 bool ok2 = AoT_Core.ExpireContract(id)
                 Debug.Trace("[AoT-Missives] poll Expire id=" + id + " q=" + q + " ok=" + ok2)
             elseif q.IsStageDone(105)
-                bool ok3 = AoT_Core.AbandonContract(id)
+                bool ok3 = AoT_Core.ExpireContract(id)
                 Debug.Trace("[AoT-Missives] poll Fail id=" + id + " q=" + q + " ok=" + ok3)
             elseif q.IsStageDone(110)
                 bool ok4 = AoT_Core.VoidContract(id)
