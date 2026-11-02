@@ -1,7 +1,7 @@
 Scriptname AoT_Card extends Quest
 {Adventurer card: a web panel (one screen) with the player's own guild record and the
-perk trees the player chose (D016). It never writes to the guild (D-23); the one thing
-it does is spend a perk point on a click, through Lodestone.TryBuyPerk (D-25, E-10).
+perk trees the player chose (D016). It never writes to the guild; the one thing
+it does is spend a perk point on a click, through Lodestone.TryBuyPerk.
 Opens on a hotkey through the Lodestone WebUI bridge.
 The handshake, the watchdog and the fallback are the same ones Intelligence Matters uses
 for its journal panel (IM_SpellResearch, "O APERTO DE MAO" and OnUpdate), copied here.}
@@ -382,9 +382,9 @@ String Function BuildPayload()
 EndFunction
 
 ; ---------------------------------------------------------------------------
-; Perk trees (E-10). Every read here is a Lodestone native: one call returns a
+; Perk trees. Every read here is a Lodestone native: one call returns a
 ; whole tree, but HasPerk / IsPerkEligible are one call per perk, so the states
-; are timed and traced (MEDIDO), and a tree is pushed as soon as it is read.
+; are timed and traced, and a tree is pushed as soon as it is read.
 ; ---------------------------------------------------------------------------
 
 Bool Function PerkOk()
@@ -554,8 +554,8 @@ EndFunction
 
 Function BuyPerk(Int aiSlot, Int aiIndex)
 	{A click on a node the page drew as buyable. The page decides nothing: the state
-	is read again here, and TryBuyPerk re-checks everything. The line is the MEDIDO
-	of the buy: points before and after, and whether the perk is owned.}
+	is read again here, and TryBuyPerk re-checks everything. The trace line carries
+	the points before and after the buy, and whether the perk is owned.}
 	If !_visible || !PerkOk() || _skills == None
 		Return
 	EndIf

@@ -9,7 +9,7 @@ The persisted format is irreversible: see DEVELOPMENT.md, "Persisted state".}
 ; ---------------------------------------------------------------------------
 ; Ranks: 0 F, 1 E, 2 D, 3 C, 4 B, 5 A, 6 S.
 ; Bands: 0 Low, 1 Med, 2 High, 3 VeryHigh, 4 own rank-A contract, 5 own rank-S contract.
-; Contract states: 1 open, 2 completed, 3 abandoned, 4 expired.
+; Contract states: 1 open, 2 completed, 3 abandoned, 4 expired, 5 void (never stood, no points; D025).
 
 Int Function SchemaCode() Global
 	{Persisted-format version this build writes.}
@@ -204,7 +204,7 @@ Int Function ContractCount() Global
 EndFunction
 
 Int Function ContractState(Int aiId) Global
-	{1 open, 2 completed, 3 abandoned, 4 expired; 0 for an unknown id.}
+	{1 open, 2 completed, 3 abandoned, 4 expired, 5 void; 0 for an unknown id.}
 	Int entry = _Entry(aiId)
 	If entry <= 0
 		Return 0
@@ -290,6 +290,12 @@ Bool Function ExpireContract(Int aiId) Global
 	Return _Close(aiId, 4)
 EndFunction
 
+Bool Function VoidContract(Int aiId) Global
+	{The contract never stood (its quest was cleaned up before anything happened): closes it
+	with no points and no loss. Once per contract.}
+	Return _Close(aiId, 5)
+EndFunction
+
 Int Function AdjustPoints(Int aiDelta) Global
 	{Low-level: adds aiDelta to the points, floored. NOT idempotent - contract events
 	go through the contract functions. Returns the delta actually applied.}
@@ -333,11 +339,32 @@ EndFunction
 ; Internals
 ; ---------------------------------------------------------------------------
 
+Function _MigrateBootContract() Global
+	{D025: up to the build that opened it on every boot, the first contract (the Whiterun
+	bandit camp) opened by itself, with no offer. Such a contract is still open with its
+	quest short of the hunt stage (20); it is closed void, once, at the first write.
+	The flag is set first: _Close writes, and a write comes back through here.}
+	If StorageUtil.HasIntValue(None, "aot_boot_contract_checked")
+		Return
+	EndIf
+	StorageUtil.SetIntValue(None, "aot_boot_contract_checked", 1)
+	Quest q = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel.esl") as Quest
+	If !q
+		Return
+	EndIf
+	Int id = FindOpenContract(q)
+	If id > 0 && !q.IsStageDone(20)
+		Bool ok = _Close(id, 5)
+		Debug.Trace("[AoT] boot-opened contract id=" + id + " closed void: " + ok)
+	EndIf
+EndFunction
+
 Bool Function _CanWrite() Global
 	{Stamps the schema on the first write; refuses to write over a newer format.}
 	Int stored = StorageUtil.GetIntValue(None, "aot_schema", 0)
 	If stored == 0
 		StorageUtil.SetIntValue(None, "aot_schema", SchemaCode())
+		_MigrateBootContract()
 		Return True
 	EndIf
 	If stored > SchemaCode()
@@ -350,6 +377,7 @@ Bool Function _CanWrite() Global
 		StorageUtil.SetIntValue(None, "aot_schema", SchemaCode())
 		Debug.Trace("[AoT] save schema " + stored + " migrated to " + SchemaCode())
 	EndIf
+	_MigrateBootContract()
 	Return True
 EndFunction
 
@@ -408,6 +436,8 @@ Bool Function _Close(Int aiId, Int aiNewState) Global
 		EndIf
 	ElseIf aiNewState == 3
 		delta = JsonUtil.GetIntValue(TablePath(), "aot_delta_abandon", 9999)
+	ElseIf aiNewState == 5
+		delta = 0
 	Else
 		delta = JsonUtil.GetIntValue(TablePath(), "aot_delta_expired", 9999)
 	EndIf

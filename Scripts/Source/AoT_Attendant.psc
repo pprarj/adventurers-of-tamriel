@@ -1,46 +1,34 @@
 Scriptname AoT_Attendant extends Quest
+{The guild clerk: fee, abandon and delivery.
+Logic is Papyrus plus AoT_Core; the core has no third-party master. The Headhunter
+and MMH branches are soft: they probe at runtime with Game.GetFormFromFile and hide
+when the soft master is absent, without logging an error (D007).
+No properties need filling: every lookup is by form file at runtime.}
 
-; AoT_Attendant - the guild clerk: fee, abandon, delivery.
-; This quest owns the attendant NPC/dialogue (Fase 3, cell of test until Fase 6).
-; All logic is Papyrus + AoT_Core; no third-party master on the core.
-; The Headhunter and MMH delivery branches are soft: they probe at runtime
-; via Game.GetFormFromFile and hide when the soft master is absent, without
-; logging an error (same pattern as Fase 2 presence check).
-
-; -- fee (D-20/D-28/D-31) --
-; Paying the fee marks the band as paid (AoT_Core.MarkBandPaid).
+; -- fee (D007, D008) --
+; Paying the fee marks the band as paid (AoT_Core.MarkBandPaid) and takes the gold.
 ; Insufficient gold: the dialogue line does not appear (condition on gold).
-; Enough gold: remove gold, then mark paid. One band at a time.
 
-; -- abandon (D-16, E2) --
-; Lists open contracts (aot_open) and calls AoT_Core.AbandonContract(id).
-; Does NOT call Quest.Stop() on foreign quests; after reading the Missives
-; family scripts (_M_QuestKillScript, _M_QuestCourierScript etc.) Stop() from
-; outside was found unsafe: it can leave the board note in the world or in
-; inventory and leaves the quest's alias reservations. Our contracts stay open
-; in their own quest until their own script closes them; abandoning here only
-; moves the ledger entry (aot_open -> aot_contracts with state 3) and applies
-; the abandon delta. The foreign quest, if any, is left for its own timeout
-; or for the player to discard the note; abandoning twice is idempotent via
-; the aot_open claim (second call returns false, no second delta).
+; -- abandon (D007) --
+; Calls AoT_Core.AbandonContract(id) by ledger id. It does NOT call Quest.Stop() on a
+; foreign quest: after reading the Missives family scripts, Stop() from outside can
+; leave the board note in the world or in the inventory, and leaves the alias
+; reservations. The ledger entry moves (aot_open -> aot_contracts, state 3) and the
+; abandon delta applies; the foreign quest is left for its own timeout or for the
+; player to discard the note. Abandoning twice is idempotent through the aot_open claim.
+; The contract of AoT_Contract_2b is abandoned through that script, so its journal
+; stage follows (D025).
 
-; -- delivery --
-; Headhunter (soft, D-5/D-35): our own Topic/INFO conditioned on the Headhunter
-;   quest being at stage 40 (GetStageDone 40). Fragment calls SetStage on that
-;   quest. Payment follows the Headhunter's own fragment (stage 100 GoldReward).
-;   Arrow: try ForceRefTo on existing alias if the record allows; otherwise
-;   leave the objective on Steward and note in TESTPLAN (A-6).
-; MMH (soft, D-7/D-35): rule maps MMH_HuntsCompleted counter to rank (A-5);
-;   attendant calls MMH_RewardScript.PayAndClose() (stage-40 guard inside).
-;   Compile against the MMH .psc when the MMH kit is present; at runtime the
-;   branch hides when Game.GetFormFromFile("MissivesMonsterHunt.esp") fails.
-
-; No properties need filling: all lookups are by FormFile at runtime.
-; The quest is Start Game Enabled, no aliases required (attendant alias if
-; needed is wired in the plugin).
+; -- delivery (D007) --
+; Headhunter (soft, D007): the attendant's INFO is conditioned on the Headhunter
+;   quest being at stage 40 (GetStageDone 40); the fragment calls
+;   AoT_HeadhunterAdapter.DeliverHead.
+; MMH (soft, D007): the attendant calls MMH_RewardScript.PayAndClose() through
+;   AoT_MMHAdapter.DeliverMMH (its own stage-40 guard inside).
 
 Function PayFee(Int aiBand)
-    {Called from the fee fragment after the gold check passed.}
+    {Called from the fee fragment. Claims the band first (MarkBandPaid is the claim),
+    and only then takes the gold, so a second caller cannot pay the same band twice.}
     If AoT_Core.IsBandPaid(aiBand)
         Debug.Trace("[AoT] Attendant PayFee: already paid band=" + aiBand)
         Return
@@ -54,16 +42,24 @@ Function PayFee(Int aiBand)
         Debug.Trace("[AoT] Attendant PayFee: fee missing for band " + aiBand)
         Return
     EndIf
+    If cost == 0
+        ; A free band (Low, D028) is never charged and never recorded as paid.
+        Debug.Trace("[AoT] Attendant PayFee: band " + aiBand + " is free")
+        Return
+    EndIf
     Actor player = Game.GetPlayer()
     Int goldBefore = player.GetGoldAmount()
     If goldBefore < cost
         Debug.Trace("[AoT] Attendant PayFee: insufficient gold " + goldBefore + " < " + cost)
         Return
     EndIf
+    If !AoT_Core.MarkBandPaid(aiBand)
+        Debug.Trace("[AoT] Attendant PayFee: band " + aiBand + " was claimed by another caller")
+        Return
+    EndIf
     player.RemoveItem(Game.GetForm(0x0000000F) as MiscObject, cost)
-    Bool newlyPaid = AoT_Core.MarkBandPaid(aiBand)
     Int goldAfter = player.GetGoldAmount()
-    Debug.Trace("[AoT] Attendant PayFee band=" + aiBand + " cost=" + cost + " gold " + goldBefore + " -> " + goldAfter + " newlyPaid=" + newlyPaid)
+    Debug.Trace("[AoT] Attendant PayFee band=" + aiBand + " cost=" + cost + " gold " + goldBefore + " -> " + goldAfter)
 EndFunction
 
 Int Function FeeForBand(Int aiBand) Global
@@ -80,41 +76,37 @@ Int Function FeeForBand(Int aiBand) Global
 EndFunction
 
 Bool Function ShouldShowFee(Int aiBand) Global
-    {True when the fee line should appear: not yet paid and affordable.}
+    {True when the fee line should appear: a fee above zero, not yet paid, affordable.
+    A free band (Low, D028) never shows one.}
     If AoT_Core.IsBandPaid(aiBand)
         Return False
     EndIf
     Int cost = FeeForBand(aiBand)
-    If cost < 0
+    If cost <= 0
         Return False
     EndIf
     Return Game.GetPlayer().GetGoldAmount() >= cost
 EndFunction
 
-Bool Function TryAbandonByIndex(Int aiIndex)
-    {Abandon the open contract at position aiIndex in the aot_open list.
-    Returns true when a contract was abandoned.}
-    Int count = StorageUtil.IntListCount(None, "aot_open")
-    If aiIndex < 0 || aiIndex >= count
-        Debug.Trace("[AoT] Attendant TryAbandon: bad index " + aiIndex + "/" + count)
-        Return False
-    EndIf
-    Int id = StorageUtil.IntListGet(None, "aot_open", aiIndex)
-    Bool ok = AoT_Core.AbandonContract(id)
-    Debug.Trace("[AoT] Attendant Abandon idx=" + aiIndex + " id=" + id + " ok=" + ok)
-    Return ok
-EndFunction
-
 Bool Function TryAbandonById(Int aiId)
-    {Direct abandon by ledger id.}
+    {Abandons the open contract with this ledger id. The id, never a list position:
+    the polling can close a contract between the listing and the choice.
+    Returns true when a contract was abandoned.}
+    Quest q2b = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel.esl") as Quest
+    If q2b && AoT_Core.FindOpenContract(q2b) == aiId
+        AoT_Contract_2b contract = q2b as AoT_Contract_2b
+        If contract
+            Return contract.TryAbandon()
+        EndIf
+    EndIf
     Bool ok = AoT_Core.AbandonContract(aiId)
     Debug.Trace("[AoT] Attendant Abandon id=" + aiId + " ok=" + ok)
     Return ok
 EndFunction
 
-; -- MMH rank mapping (A-5) --
-; MMH has no rank. We map its hunt counter to our rank for the rule
-; "MMH respects rank or stays out". This is OUR rule (D-7), not MMH's.
+; -- MMH rank mapping --
+; MMH has no rank. Its hunt counter maps to a guild rank, for display only: the
+; gate for MMH hunts is the real guild rank (D007, AoT_MMHAdapter.CanTakeMMHBand).
 Int Function MMHRank() Global
     {Rank 0..6 derived from MMH_HuntsCompleted; 0 when MMH not present.}
     Form f = Game.GetFormFromFile(0x06000845, "MissivesMonsterHunt.esp")
@@ -126,8 +118,8 @@ Int Function MMHRank() Global
     If hunts < 0
         hunts = 0
     EndIf
-    ; Thresholds match the ladder shape: 0->F, 3->E, 6->D, 12->C, 20->B, 32->A, 48->S
-    ; but using the same ladder data as the core for consistency.
+    ; Rank r holds while hunts < the sum of the ladder steps up to r (3, 9, 21, 41,
+    ; 73, 121 with the shipped table), read from the same ladder data as the core.
     Int r = 0
     While r < AoT_Core.MaxRank()
         Int step = AoT_Core.LadderStep(r)
@@ -154,11 +146,11 @@ Int Function MMHRank() Global
     Return AoT_Core.MaxRank()
 EndFunction
 
-; -- soft presence (Fase 2 pattern, E3 gate) --
+; -- soft presence --
 Bool Function HasHeadhunter() Global
-    ; Any form from that plugin proves it is loaded; use GoldReward as probe.
+    ; Any form from that plugin proves it is loaded.
     Form f = Game.GetFormFromFile(0x00000800, "Headhunter - Bounties Redone.esp")
-    ; Fallback: extension plugin
+    ; Fallback: the extension plugin.
     If !f
         f = Game.GetFormFromFile(0x00000F0C, "BountiesRedone_MissivesExtension.esp")
     EndIf

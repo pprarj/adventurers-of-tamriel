@@ -15,6 +15,8 @@ redistributable here:
 | `<this repo>\Scripts\Source` | this project's scripts |
 | `<Skyrim>\Data\Scripts\Source` or `<Skyrim>\Data\Source\Scripts` | vanilla and SKSE script sources |
 | `<PapyrusUtil SE>\Scripts\Source` | `StorageUtil` and `JsonUtil`, used by the core |
+| `<Monster Hunt Missives>\Source\Scripts` | `MMH_RewardScript`, called by the MMH adapter |
+| `<Headhunter - Bounties Redone>\Source\Scripts` | the Headhunter scripts the Headhunter adapter calls |
 
 ```
 PapyrusCompiler.exe <script or folder> ^
@@ -67,7 +69,7 @@ Contract states: 1 open, 2 completed, 3 abandoned, 4 expired.
 | `Int BandWeight(Int rank, Int band)` | draw weight of `band` for `rank`; -1 on error |
 | `Bool IsBandPaid(Int band)` | the fee of `band` was paid |
 | `Int ContractCount()` | contracts ever opened; ids run from 1 to this |
-| `Int ContractState(Int id)` | 1 to 4, or 0 for an unknown id |
+| `Int ContractState(Int id)` | 1 to 5, or 0 for an unknown id |
 | `Int ContractBand(Int id)` | band, or -1 for an unknown id |
 | `Int ContractDelta(Int id)` | points the contract actually applied, after the floor; 0 while open |
 | `Int FindOpenContract(Quest q)` | id of the open contract of `q`, or 0 |
@@ -145,7 +147,7 @@ than its own refuses to write.
 | `aot_open` | Int list | global | ids of the contracts still open |
 | `aot_contract_id` | Int | the contract's `Quest` | id of that quest's latest contract |
 
-Ledger entry: `state + 8 * band + 64 * (delta + 1024)`, with `state` 1 to 4,
+Ledger entry: `state + 8 * band + 64 * (delta + 1024)`, with `state` 1 to 5 (5 = void: closed with no points),
 `band` 0 to 5 and `delta` -1024 to 1023 - every term non-negative, so integer
 division decodes it. Zero is never a valid entry, id or state, because
 `StorageUtil` stores 0 as an unset key.
@@ -178,7 +180,7 @@ if Game.GetFormFromFile(0x001D95, "Missives.esp") != None
 endif
 ```
 
-Without the adapter the board serves only our own contracts. The adapter reads the board FormLists (`_M_ListQuests*` and `_D_ListQuests*`) **in game** via `Game.GetFormFromFile` so SkyPatcher injections are visible, and tests each entry as `Quest` before use. See D005/D006 for stage table, D-30 via(c) re-apply and E-12 above-rank note (StoresText on 00F0C6, alias Missive index 6).
+Without the adapter the board serves only our own contracts. The board reads the Missives FormLists (`_M_ListQuests*`) **in game** via `Game.GetFormFromFile` so SkyPatcher injections are visible, and tests each entry as `Quest` before use. BadGuys lists are not read: it does not expose `_D_ListQuests*` (D029). A quest the board starts is only an offer (`aot_missives_offer`, band in `aot_offer_band`); the adapter opens the contract when the quest reaches stage 20 and closes it by stage 100, 103, 105 or 110 (D026). See D005/D006 for stage table, D-30 via(c) re-apply and E-12 above-rank note (StoresText on 00F0C6, alias Missive index 6).
 
 ## The SKSE plugin
 

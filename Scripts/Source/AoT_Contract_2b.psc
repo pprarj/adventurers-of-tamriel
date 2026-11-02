@@ -1,31 +1,40 @@
 Scriptname AoT_Contract_2b extends Quest
-{Whiterun bandit camp contract (Fase 2b, arquetipo inaugural).
-Mudo, sem fragment. O contrato abre, fecha, abandona e expira por CHAMADA de
-funcao deste script (TryOpen/TryComplete/TryAbandon/TryExpire); o stage da quest
-e so o espelho para o diario, gravado DEPOIS do fechamento no nucleo (D012).
-Quest.psc nao declara OnStageSet: um evento com esse nome compila e nunca roda.
-O Boss alias (id 2) e Boss REFT (LocTypeRefType 0x130F7 dentro de Dungeon).
-A faixa e Low (0). Ver D005.}
+{Whiterun bandit camp contract, the first contract archetype.
+Silent, no fragments. The contract opens, closes, is abandoned and expires by a
+CALL to a function of this script (TryOpen, TryComplete, TryAbandon, TryExpire);
+the quest stage is only the journal mirror, written AFTER the ledger moved (D012).
+Quest.psc declares no OnStageSet: an event with that name compiles and never runs.
+Nothing opens the contract by itself: whoever offers it (the board, the attendant)
+calls TryOpen, and the hunt stage is written by TryOpen (D025).
+The Boss alias (id 2) is a Boss ref type (LocTypeRefType 0x130F7) inside a Dungeon.
+The band is Low (0). See D005.}
 
 Int Property Band = 0 AutoReadOnly Hidden
 
-; Quest stages mirror Missives _M_QuestWhiterunKillGiant:
-; 0 StartUp, 20 hunt, 30 awarded, 100 complete, 103 expire, 105 fail, 110 cleanup.
-; Objective 20 -> alias 2 (Target), objective 30 -> alias 3 (Steward) - minimal.
-
-Event OnInit()
-    ; Quest is Start Game Enabled: open once here.
-    TryOpen()
-EndEvent
+; Quest stages mirror the Missives kill family:
+; 0 start, 20 hunt, 30 awarded, 100 complete, 103 expire, 105 fail, 110 cleanup.
+; Objective 20 -> alias 2 (Target), objective 30 -> alias 3 (Steward).
 
 Function TryOpen()
+    {Opens the contract and starts the hunt (stage 20). One-shot: a contract that
+    already ended in this save is not offered again.}
+    If IsStageDone(100) || IsStageDone(103) || IsStageDone(105)
+        Debug.Trace("[AoT-2b] TryOpen refused: this contract already ended")
+        Return
+    EndIf
     Int id = AoT_Core.FindOpenContract(self as Quest)
     If id > 0
         Debug.Trace("[AoT-2b] TryOpen already open id=" + id)
-        return
+        Return
+    EndIf
+    If !IsRunning()
+        Start()
     EndIf
     id = AoT_Core.OpenContract(self as Quest, Band)
     Debug.Trace("[AoT-2b] OpenContract band=" + Band + " -> id=" + id)
+    If id > 0
+        MirrorStage(20)
+    EndIf
 EndFunction
 
 Bool Function TryComplete()

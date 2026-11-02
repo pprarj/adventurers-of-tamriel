@@ -1,9 +1,12 @@
 Scriptname AoT_MissivesBoard extends ObjectReference
-{Guild board trigger - draws band by BandWeight(rank,band) among paid bands,
-picks up to 5 slots: 2 rank+1 and 1 rank+2 (E-12, flagged Above Rank).
-Reads FLSTs at runtime so SkyPatcher injections are visible. Pattern after
-_M_ActivatorScript: proximity trigger, GameDaysPassed gate, BlockActivation,
-weighted draw and Quest.Start() - text not copied.}
+{Guild board trigger. Draws a band by BandWeight(rank, band) among the paid bands
+and offers up to 5 quests: 2 from a band that exists at rank+1 and not at rank,
+1 from a band that exists at rank+2 and not at rank+1, flagged "[Above Rank]" (D005).
+Reads the FormLists at runtime so SkyPatcher injections are visible. Pattern after
+the Missives activator script: proximity trigger, GameDaysPassed gate, BlockActivation,
+weighted draw and Quest.Start(); no text copied.
+Offering is not taking: the quest is only REGISTERED as an offer here, and the
+contract opens in the ledger when the player accepts it (D026).}
 
 FormList Property QuestsLow Auto
 FormList Property QuestsMed Auto
@@ -20,6 +23,10 @@ String Property MissivesPlugin = "Missives.esp" Auto
 Event OnTriggerEnter(ObjectReference akActionRef)
     if akActionRef != Game.GetPlayer()
         return
+    endif
+    if GameDaysPassed == None
+        ; Skyrim.esm GameDaysPassed: without it the one-day gate would never apply.
+        GameDaysPassed = Game.GetForm(0x00000039) as GlobalVariable
     endif
     if GameDaysPassed != None
         if GameDaysPassed.GetValue() <= LastUpdate + RefreshGameDays
@@ -53,6 +60,12 @@ Function ResolveLists()
 EndFunction
 
 Function OfferContracts()
+    AoT_MissivesAdapter adapter = AdapterQuest as AoT_MissivesAdapter
+    if adapter == None
+        ; A quest started without the adapter could never be tracked.
+        Debug.Trace("[AoT-MissivesBoard] AdapterQuest not set: nothing offered")
+        return
+    endif
     int rank = AoT_Core.GetRank()
     int started = 0
     int attempts = 0
@@ -61,22 +74,21 @@ Function OfferContracts()
     while started < 5 && attempts < 30
         attempts += 1
         int band = -1
-        bool isAbove = false
+        int aboveKind = 0
         if aboveOne < 2 && rank < AoT_Core.MaxRank()
             band = DrawBandAbove(rank, 1)
             if band >= 0
-                isAbove = true
+                aboveKind = 1
             endif
         endif
         if band < 0 && aboveTwo < 1 && rank + 1 < AoT_Core.MaxRank()
             band = DrawBandAbove(rank, 2)
             if band >= 0
-                isAbove = true
+                aboveKind = 2
             endif
         endif
         if band < 0
             band = DrawBand(rank)
-            isAbove = AoT_MissivesAdapter.IsAboveRankNote(band)
         endif
         if band < 0
             return
@@ -86,34 +98,21 @@ Function OfferContracts()
             Quest q = PickStartableFromFLST(src)
             if q != None
                 string note = ""
-                if isAbove
+                if aboveKind > 0
                     note = " [Above Rank]"
-                endif
-                int id = AoT_Core.OpenContract(q, band)
-                if id > 0
-                    (AdapterQuest as AoT_MissivesAdapter).RegisterContractQuest(id, q)
-                    if isAbove
-                        SetAboveRankNote(q, note)
-                        if aboveOne < 2 && IsBandFromRank(band, rank + 1)
-                            aboveOne += 1
-                        elseif aboveTwo < 1 && IsBandFromRank(band, rank + 2)
-                            aboveTwo += 1
-                        endif
+                    SetAboveRankNote(q, note)
+                    if aboveKind == 1
+                        aboveOne += 1
+                    else
+                        aboveTwo += 1
                     endif
-                    Debug.Trace("[AoT-MissivesBoard] offering " + q + " band=" + band + note)
-                    started += 1
                 endif
+                adapter.RegisterOffer(q, band)
+                Debug.Trace("[AoT-MissivesBoard] offering " + q + " band=" + band + note)
+                started += 1
             endif
         endif
     endwhile
-EndFunction
-
-Bool Function IsBandFromRank(int aiBand, int aiRank) Global
-    if aiRank < 0 || aiRank > AoT_Core.MaxRank()
-        return false
-    endif
-    int w = AoT_Core.BandWeight(aiRank, aiBand)
-    return w > 0
 EndFunction
 
 Int Function DrawBand(int aiRank)
@@ -150,17 +149,20 @@ Int Function DrawBand(int aiRank)
 EndFunction
 
 Int Function DrawBandAbove(int aiRank, int aiOffset)
+    {A band that exists at rank + aiOffset and NOT at the rank right below it
+    (rank + aiOffset - 1), weighted by its weight at rank + aiOffset (D005).}
     int targetRank = aiRank + aiOffset
     if targetRank > AoT_Core.MaxRank()
         return -1
     endif
+    int baseRank = targetRank - 1
     int total = 0
     int b = 0
     while b <= 3
         if AoT_Core.IsBandPaid(b) || b == 0
-            int wCur = AoT_Core.BandWeight(aiRank, b)
+            int wBase = AoT_Core.BandWeight(baseRank, b)
             int wTgt = AoT_Core.BandWeight(targetRank, b)
-            if wCur == 0 && wTgt > 0
+            if wBase == 0 && wTgt > 0
                 total += wTgt
             endif
         endif
@@ -174,9 +176,9 @@ Int Function DrawBandAbove(int aiRank, int aiOffset)
     b = 0
     while b <= 3
         if AoT_Core.IsBandPaid(b) || b == 0
-            int wCur2 = AoT_Core.BandWeight(aiRank, b)
+            int wBase2 = AoT_Core.BandWeight(baseRank, b)
             int wTgt2 = AoT_Core.BandWeight(targetRank, b)
-            if wCur2 == 0 && wTgt2 > 0
+            if wBase2 == 0 && wTgt2 > 0
                 acc += wTgt2
                 if roll <= acc
                     return b
@@ -246,6 +248,6 @@ Function SetAboveRankNote(Quest akQuest, string aNote)
         string cur = missiveRef.GetDisplayName()
         string newName = cur + aNote
         bool ok = missiveRef.SetDisplayName(newName, true)
-        Debug.Trace("[AoT-MissivesBoard] StoresText " + akQuest + " -> " + newName + " ok=" + ok)
+        Debug.Trace("[AoT-MissivesBoard] note " + akQuest + " -> " + newName + " ok=" + ok)
     endif
 EndFunction
