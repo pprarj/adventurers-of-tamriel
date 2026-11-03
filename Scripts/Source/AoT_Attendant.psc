@@ -75,6 +75,9 @@ Function EnsureAttendant() Global
     If cur && !cur.IsDead() && cur.GetParentCell() == hall
         Return
     EndIf
+    If !Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
+        Return
+    EndIf
     ActorBase base = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Actors.esp") as ActorBase
     If !spot || !base
         Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
@@ -95,7 +98,10 @@ Function ProbeReport() Global
     SyncGlobals()
     Int b = 1
     While b <= AoT_Core.MaxBand()
-        GlobalVariable g = Game.GetFormFromFile(_GlobalId("fee" + b), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+        GlobalVariable g = None
+        If Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
+            g = Game.GetFormFromFile(_GlobalId("fee" + b), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+        EndIf
         Float gv = -1.0
         If g
             gv = g.GetValue()
@@ -287,6 +293,9 @@ Int Function _GlobalId(String asName) Global
 EndFunction
 
 Function _SetGlobal(String asName, Int aiValue) Global
+    If !Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
+        Return
+    EndIf
     GlobalVariable g = Game.GetFormFromFile(_GlobalId(asName), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
     If g
         g.SetValue(aiValue as Float)
