@@ -24,20 +24,51 @@ Event OnUpdate()
     RegisterForSingleUpdate(3.0)
 EndEvent
 
+String Function HallsPath() Global
+    {JsonUtil path of the table of halls written by the hall cloner (one row per hold).}
+    Return "../../../Config/AdventurersOfTamriel/halls"
+EndFunction
+
 Function EnsureAttendant() Global
-    {The hall is one interior cloned later (D033): the base NPC is placed at the hall's
-    AoT_GuildHallAttendantSpot the first time the player is inside, and again if it died or
-    vanished. No cell override, so the Actors plugin keeps its clean header.}
-    Cell hall = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_GuildHall.esp") as Cell
+    {The base NPC is placed at the hall's AoT_GuildHallAttendantSpot the first time the player is
+    inside, and again if it died or vanished. The hall is found by the table of halls (cloned,
+    one per hold; the plugin, the cell and the marker are looked up by form file, so no plugin needs
+    a new master); the single Fase 6 hall is the fallback. No cell override, so the Actors plugin
+    keeps its clean header.}
     Actor pl = Game.GetPlayer()
-    If !hall || pl.GetParentCell() != hall
+    Cell here = pl.GetParentCell()
+    If !here || !here.IsInterior()
         Return
     EndIf
-    Actor cur = StorageUtil.GetFormValue(None, "aot_att_ref", None) as Actor
+    Cell hall = None
+    ObjectReference spot = None
+    String attKey = "aot_att_ref"
+    String path = HallsPath()
+    Int n = JsonUtil.StringListCount(path, "aot_hall_holds")
+    Int i = 0
+    While i < n && !hall
+        String hold = JsonUtil.StringListGet(path, "aot_hall_holds", i)
+        String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + hold, "")
+        Int cellId = JsonUtil.IntListGet(path, "aot_hall_" + hold, 0)
+        Cell c = Game.GetFormFromFile(cellId, plug) as Cell
+        If c && c == here
+            hall = c
+            spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + hold, 1), plug) as ObjectReference
+            attKey = "aot_att_ref_" + hold
+        EndIf
+        i += 1
+    EndWhile
+    If !hall
+        hall = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_GuildHall.esp") as Cell
+        If !hall || here != hall
+            Return
+        EndIf
+        spot = Game.GetFormFromFile(0x00097A, "AdventurersOfTamriel_GuildHall.esp") as ObjectReference
+    EndIf
+    Actor cur = StorageUtil.GetFormValue(None, attKey, None) as Actor
     If cur && !cur.IsDead() && cur.GetParentCell() == hall
         Return
     EndIf
-    ObjectReference spot = Game.GetFormFromFile(0x00097A, "AdventurersOfTamriel_GuildHall.esp") as ObjectReference
     ActorBase base = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Actors.esp") as ActorBase
     If !spot || !base
         Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
@@ -45,6 +76,7 @@ Function EnsureAttendant() Global
     EndIf
     Actor a = spot.PlaceAtMe(base, 1, True) as Actor
     If a
+        StorageUtil.SetFormValue(None, attKey, a)
         StorageUtil.SetFormValue(None, "aot_att_ref", a)
         Debug.Trace("[AoT] Attendant placed " + a + " in the hall")
     EndIf
