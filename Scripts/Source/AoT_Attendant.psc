@@ -48,17 +48,23 @@ Function EnsureAttendant() Global
     Int i = 0
     While i < n && !hall
         String hold = JsonUtil.StringListGet(path, "aot_hall_holds", i)
-        String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + hold, "")
-        Int cellId = JsonUtil.IntListGet(path, "aot_hall_" + hold, 0)
-        Cell c = Game.GetFormFromFile(cellId, plug) as Cell
+        String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + i, "")
+        Int cellId = JsonUtil.IntListGet(path, "aot_hall_" + i, 0)
+        Cell c = None
+        If plug != ""
+            c = Game.GetFormFromFile(cellId, plug) as Cell
+        EndIf
         If c && c == here
             hall = c
-            spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + hold, 1), plug) as ObjectReference
+            spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + i, 1), plug) as ObjectReference
             attKey = "aot_att_ref_" + hold
         EndIf
         i += 1
     EndWhile
     If !hall
+        If !Game.IsPluginInstalled("AdventurersOfTamriel_GuildHall.esp")
+            Return
+        EndIf
         hall = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_GuildHall.esp") as Cell
         If !hall || here != hall
             Return
