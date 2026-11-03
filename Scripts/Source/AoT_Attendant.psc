@@ -5,6 +5,69 @@ and MMH branches are soft: they probe at runtime with Game.GetFormFromFile and h
 when the soft master is absent, without logging an error (D007).
 No properties need filling: every lookup is by form file at runtime.}
 
+; -- keeps the dialogue true (D034): a 3 second tick places the attendant when the player is in
+; the guild hall, and every 7th tick re-syncs the dialogue globals. Single updates are re-armed
+; in OnUpdate and persist across saves. Cheap: a cell compare per tick, a few reads per sync.
+Int _tick = 0
+
+Event OnInit()
+    RegisterForSingleUpdate(3.0)
+EndEvent
+
+Event OnUpdate()
+    EnsureAttendant()
+    _tick += 1
+    If _tick >= 7
+        _tick = 0
+        SyncGlobals()
+    EndIf
+    RegisterForSingleUpdate(3.0)
+EndEvent
+
+Function EnsureAttendant() Global
+    {The hall is one interior cloned later (D033): the base NPC is placed at the hall's
+    AoT_GuildHallAttendantSpot the first time the player is inside, and again if it died or
+    vanished. No cell override, so the Actors plugin keeps its clean header.}
+    Cell hall = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_GuildHall.esp") as Cell
+    Actor pl = Game.GetPlayer()
+    If !hall || pl.GetParentCell() != hall
+        Return
+    EndIf
+    Actor cur = StorageUtil.GetFormValue(None, "aot_att_ref", None) as Actor
+    If cur && !cur.IsDead() && cur.GetParentCell() == hall
+        Return
+    EndIf
+    ObjectReference spot = Game.GetFormFromFile(0x00097A, "AdventurersOfTamriel_GuildHall.esp") as ObjectReference
+    ActorBase base = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Actors.esp") as ActorBase
+    If !spot || !base
+        Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
+        Return
+    EndIf
+    Actor a = spot.PlaceAtMe(base, 1, True) as Actor
+    If a
+        StorageUtil.SetFormValue(None, "aot_att_ref", a)
+        Debug.Trace("[AoT] Attendant placed " + a + " in the hall")
+    EndIf
+EndFunction
+
+Function ProbeReport() Global
+    {In-game probe (D034): console `cgf "AoT_Attendant.ProbeReport"`. Logs, per fee band, the
+    fee, paid, what the topic condition sees; the delivery and open-contract globals; gold.
+    Run SyncGlobals first so it reads what the dialogue will read.}
+    SyncGlobals()
+    Int b = 1
+    While b <= AoT_Core.MaxBand()
+        GlobalVariable g = Game.GetFormFromFile(_GlobalId("fee" + b), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+        Float gv = -1.0
+        If g
+            gv = g.GetValue()
+        EndIf
+        Debug.Trace("[AoT-PROBE] band " + b + " fee=" + FeeForBand(b) + " paid=" + AoT_Core.IsBandPaid(b) + " global=" + gv + " show=" + ShouldShowFee(b))
+        b += 1
+    EndWhile
+    Debug.Trace("[AoT-PROBE] open=" + FirstOpenContractId() + " gold=" + Game.GetPlayer().GetGoldAmount() + " head=" + HasHeadhunter() + " mmh=" + HasMMH() + " ref=" + (StorageUtil.GetFormValue(None, "aot_att_ref", None)))
+EndFunction
+
 ; -- fee (D007, D008) --
 ; Paying the fee marks the band as paid (AoT_Core.MarkBandPaid) and takes the gold.
 ; Insufficient gold: the dialogue line does not appear (condition on gold).
@@ -160,4 +223,119 @@ EndFunction
 Bool Function HasMMH() Global
     Form f = Game.GetFormFromFile(0x06000845, "MissivesMonsterHunt.esp")
     Return f != None
+EndFunction
+
+; -- dialogue glue (Part F, D034) --
+; The attendant's topics live in AdventurersOfTamriel_Actors.esp. Their conditions read
+; globals (gold needs a global to compare against); SyncGlobals keeps them true to the
+; save. Fragments call RunAction. Every entry is global: a topic fragment has no quest.
+Int Function _GlobalId(String asName) Global
+    If asName == "fee1"
+        Return 0x000804
+    ElseIf asName == "fee2"
+        Return 0x000805
+    ElseIf asName == "fee3"
+        Return 0x000806
+    ElseIf asName == "fee4"
+        Return 0x000807
+    ElseIf asName == "fee5"
+        Return 0x000808
+    ElseIf asName == "head"
+        Return 0x000809
+    ElseIf asName == "mmh"
+        Return 0x00080A
+    EndIf
+    Return 0x00080B
+EndFunction
+
+Function _SetGlobal(String asName, Int aiValue) Global
+    GlobalVariable g = Game.GetFormFromFile(_GlobalId(asName), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+    If g
+        g.SetValue(aiValue as Float)
+    Else
+        Debug.Trace("[AoT] Attendant: global " + asName + " not found")
+    EndIf
+EndFunction
+
+Int Function FirstOpenContractId() Global
+    {Ledger id of the oldest open contract; 0 when none (state 1 = open).}
+    Int n = AoT_Core.ContractCount()
+    Int i = 1
+    While i <= n
+        If AoT_Core.ContractState(i) == 1
+            Return i
+        EndIf
+        i += 1
+    EndWhile
+    Return 0
+EndFunction
+
+Function SyncGlobals() Global
+    {Fee global = the fee when the band is payable and unpaid, else 0 (the topic is
+    hidden by "fee > 0 and gold >= fee"). Delivery globals read the quests the board
+    recorded under aot_head_q / aot_mmh_q, at stage 40.}
+    Int b = 1
+    While b <= AoT_Core.MaxBand()
+        Int c = FeeForBand(b)
+        If c < 0 || AoT_Core.IsBandPaid(b)
+            c = 0
+        EndIf
+        _SetGlobal("fee" + b, c)
+        b += 1
+    EndWhile
+    Quest hq = StorageUtil.GetFormValue(None, "aot_head_q", None) as Quest
+    Quest mq = StorageUtil.GetFormValue(None, "aot_mmh_q", None) as Quest
+    Int h = 0
+    If hq && HasHeadhunter() && hq.GetStage() == 40
+        h = 1
+    EndIf
+    Int m = 0
+    If mq && HasMMH() && mq.GetStage() == 40
+        m = 1
+    EndIf
+    _SetGlobal("head", h)
+    _SetGlobal("mmh", m)
+    Int o = 0
+    If FirstOpenContractId() > 0
+        o = 1
+    EndIf
+    _SetGlobal("open", o)
+EndFunction
+
+Function RunAction(Int aiAction, Int aiBand) Global
+    {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
+    4 deliver the MMH hunt. Re-syncs the globals after.}
+    Quest q = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Attendant.esp") as Quest
+    AoT_Attendant a = q as AoT_Attendant
+    If aiAction == 1
+        If a && ShouldShowFee(aiBand)
+            a.PayFee(aiBand)
+        Else
+            Debug.Trace("[AoT] Attendant RunAction: fee not payable band=" + aiBand)
+        EndIf
+    ElseIf aiAction == 2
+        Int id = FirstOpenContractId()
+        If id > 0 && a
+            a.TryAbandonById(id)
+        EndIf
+    ElseIf aiAction == 3
+        Quest hq = StorageUtil.GetFormValue(None, "aot_head_q", None) as Quest
+        If hq
+            Quest hqa = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Headhunter.esp") as Quest
+            AoT_HeadhunterAdapter ad = hqa as AoT_HeadhunterAdapter
+            If ad
+                ad.DeliverHead(hq)
+            EndIf
+        EndIf
+    ElseIf aiAction == 4
+        Quest mq = StorageUtil.GetFormValue(None, "aot_mmh_q", None) as Quest
+        If mq
+            Quest mqa = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_MMH.esp") as Quest
+            AoT_MMHAdapter am = mqa as AoT_MMHAdapter
+            If am
+                am.DeliverMMH(mq)
+            EndIf
+        EndIf
+    EndIf
+    SyncGlobals()
 EndFunction
