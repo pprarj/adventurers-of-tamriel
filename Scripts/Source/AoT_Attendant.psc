@@ -83,8 +83,13 @@ Function EnsureAttendant() Global
         Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
         Return
     EndIf
+    If !spot.Is3DLoaded()
+        Debug.Trace("[AoT] Attendant: spot 3D not loaded yet, retry next tick (" + spot + ")")
+        Return
+    EndIf
     Actor a = spot.PlaceAtMe(base, 1, True) as Actor
     If a
+        Debug.Trace("[AoT] Attendant: spot at " + spot.GetPositionX() + "," + spot.GetPositionY() + "," + spot.GetPositionZ())
         StorageUtil.SetFormValue(None, attKey, a)
         StorageUtil.SetFormValue(None, "aot_att_ref", a)
         Debug.Trace("[AoT] Attendant placed " + a + " in the hall")
