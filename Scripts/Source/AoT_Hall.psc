@@ -42,6 +42,63 @@ Function EnsureFixtures() Global
 	If hall < 0
 		Return
 	EndIf
-	_Ensure(hall, 2, "aot_board_ref_", "AdventurersOfTamriel_ExamTalk.esp", 0x000806)
+	_EnsureBoard(hall)
 	_Ensure(hall, 4, "aot_exm_ref_", "AdventurersOfTamriel_Exam.esp", 0x000803)
+EndFunction
+
+Function _EnsureBoard(Int aiHall) Global
+	{Fase 9 (D039): the board is a container that holds the contract notes. Without the contracts
+	plugin the Fase 8 activator stays. With Missives installed the board is the Missives board base
+	(a Missives quest creates its note in the nearest one of them, GetIsID), else ours. The Fase 8
+	activator of the hold is removed once. The board goes into the board quest alias.}
+	String plugin = AoT_ContractsCtl.PluginName()
+	If !Game.IsPluginInstalled(plugin)
+		_Ensure(aiHall, 2, "aot_board_ref_", "AdventurersOfTamriel_ExamTalk.esp", 0x000806)
+		Return
+	EndIf
+	String path = AoT_Attendant.HallsPath()
+	String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + aiHall, "")
+	If plug == "" || !Game.IsPluginInstalled(plug)
+		Return
+	EndIf
+	String hold = JsonUtil.StringListGet(path, "aot_hall_holds", aiHall)
+	ObjectReference old = StorageUtil.GetFormValue(None, "aot_board_ref_" + hold, None) as ObjectReference
+	If old
+		old.Disable()
+		old.Delete()
+		StorageUtil.UnsetFormValue(None, "aot_board_ref_" + hold)
+		Debug.Trace("[AoT-F9] Hall: Fase 8 board removed " + old)
+	EndIf
+	Form base = None
+	If Game.IsPluginInstalled("Missives.esp")
+		base = Game.GetFormFromFile(0x0012CB, "Missives.esp")
+	EndIf
+	If !base
+		base = Game.GetFormFromFile(0x000801, plugin)
+	EndIf
+	Cell hall = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + aiHall, 0), plug) as Cell
+	String refKey = "aot_cboard_ref_" + hold
+	ObjectReference cur = StorageUtil.GetFormValue(None, refKey, None) as ObjectReference
+	If cur && cur.GetBaseObject() != base
+		Debug.Trace("[AoT-F9] Hall: board base changed, replacing " + cur)
+		cur.Disable()
+		cur.Delete()
+		cur = None
+	EndIf
+	If !cur || cur.GetParentCell() != hall
+		ObjectReference spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + aiHall, 2), plug) as ObjectReference
+		If !spot || !base || !spot.Is3DLoaded()
+			Return
+		EndIf
+		cur = spot.PlaceAtMe(base, 1, True, False)
+		If !cur
+			Return
+		EndIf
+		StorageUtil.SetFormValue(None, refKey, cur)
+		Debug.Trace("[AoT-F9] Hall: placed " + refKey + " " + cur + " base=" + base)
+	EndIf
+	AoT_ContractsCtl ctl = AoT_ContractsCtl.Get()
+	If ctl
+		ctl.SetBoard(cur)
+	EndIf
 EndFunction

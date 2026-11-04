@@ -22,6 +22,7 @@ Event OnUpdate()
     If _tick >= 7
         _tick = 0
         SyncGlobals()
+        AoT_Emergency.Heal()
     EndIf
     RegisterForSingleUpdate(3.0)
 EndEvent
@@ -206,6 +207,12 @@ Bool Function TryAbandonById(Int aiId)
     {Abandons the open contract with this ledger id. The id, never a list position:
     the polling can close a contract between the listing and the choice.
     Returns true when a contract was abandoned.}
+    ; Fase 9: a generated contract keeps its quest under aot_own_q<id> (AoT_Contract.TryOpen).
+    Quest own = StorageUtil.GetFormValue(None, "aot_own_q" + aiId, None) as Quest
+    AoT_Contract oc = own as AoT_Contract
+    If oc && AoT_Core.FindOpenContract(own) == aiId
+        Return oc.TryAbandon()
+    EndIf
     Quest q2b = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel.esl") as Quest
     If q2b && AoT_Core.FindOpenContract(q2b) == aiId
         AoT_Contract_2b contract = q2b as AoT_Contract_2b
