@@ -316,9 +316,43 @@ Function RetireMissives(ObjectReference akBoard)
 	EndWhile
 EndFunction
 
+Bool Function TwinBusy(AoT_Contract akC)
+	{Fase 10 (D047): two of our quests that fill the same places (an A or S contract and its
+	Counterpart: the emergency call, or the common contract) are never offered together. Forward by
+	the Counterpart property; backward by a scan of the A and S lists, because a quest of an older
+	plugin keeps the property values of the save.}
+	AoT_Contract twin = akC.Counterpart as AoT_Contract
+	If twin && twin.IsRunning()
+		Return True
+	EndIf
+	Quest self_q = akC as Quest
+	Int b = 4
+	While b <= 5
+		FormList L = OurList(b)
+		If L
+			Int n = L.GetSize()
+			Int i = 0
+			While i < n
+				AoT_Contract x = L.GetAt(i) as AoT_Contract
+				If x && x.Counterpart == self_q && x.IsRunning()
+					Return True
+				EndIf
+				i += 1
+			EndWhile
+		EndIf
+		b += 1
+	EndWhile
+	Return False
+EndFunction
+
 Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy)
 	AoT_Contract c = akQuest as AoT_Contract
 	If !c
+		Return False
+	EndIf
+	If TwinBusy(c)
+		Debug.Trace("[AoT-F10] not offered " + akQuest + ": its counterpart runs")
+		MarkFailed(akQuest)
 		Return False
 	EndIf
 	StorageUtil.SetFormValue(akQuest, "aot_offer_board", akBoard)
