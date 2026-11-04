@@ -24,6 +24,21 @@ Event OnTriggerEnter(ObjectReference akActionRef)
     if akActionRef != Game.GetPlayer()
         return
     endif
+    TryOffer()
+EndEvent
+
+Event OnActivate(ObjectReference akActionRef)
+    {The board placed in the halls (Fase 8, AoT_Hall) is an activator, not a trigger volume.}
+    if akActionRef != Game.GetPlayer()
+        return
+    endif
+    TryOffer()
+EndEvent
+
+Function TryOffer()
+    if AdapterQuest == None && Game.IsPluginInstalled("AdventurersOfTamriel_Missives.esp")
+        AdapterQuest = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Missives.esp") as Quest
+    endif
     if GameDaysPassed == None
         ; Skyrim.esm GameDaysPassed: without it the one-day gate would never apply.
         GameDaysPassed = Game.GetForm(0x00000039) as GlobalVariable
@@ -38,7 +53,7 @@ Event OnTriggerEnter(ObjectReference akActionRef)
     BlockActivation(true)
     OfferContracts()
     BlockActivation(false)
-EndEvent
+EndFunction
 
 Function ResolveLists()
     if QuestsLow == None

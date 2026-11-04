@@ -16,6 +16,8 @@ EndEvent
 
 Event OnUpdate()
     EnsureAttendant()
+    AoT_Hall.EnsureFixtures()
+    AoT_Exam.Tick()
     _tick += 1
     If _tick >= 7
         _tick = 0
@@ -293,15 +295,24 @@ Int Function _GlobalId(String asName) Global
         Return 0x000809
     ElseIf asName == "mmh"
         Return 0x00080A
+    ElseIf asName == "exam"
+        Return 0x000800
+    ElseIf asName == "promote"
+        Return 0x000801
     EndIf
     Return 0x00080B
 EndFunction
 
 Function _SetGlobal(String asName, Int aiValue) Global
-    If !Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
+    ; the exam and promotion globals live in the ExamTalk plugin (D037); the rest in Actors
+    String plug = "AdventurersOfTamriel_Actors.esp"
+    If asName == "exam" || asName == "promote"
+        plug = "AdventurersOfTamriel_ExamTalk.esp"
+    EndIf
+    If !Game.IsPluginInstalled(plug)
         Return
     EndIf
-    GlobalVariable g = Game.GetFormFromFile(_GlobalId(asName), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+    GlobalVariable g = Game.GetFormFromFile(_GlobalId(asName), plug) as GlobalVariable
     If g
         g.SetValue(aiValue as Float)
     Else
@@ -335,6 +346,10 @@ Function SyncGlobals() Global
         _SetGlobal("fee" + b, c)
         b += 1
     EndWhile
+    ; E5: the adapters find the foreign hunt quest at stage 40 and the attendant records it; with the
+    ; third-party mod absent both stay None, the two topics stay hidden (D-35, a control).
+    StorageUtil.SetFormValue(None, "aot_head_q", AoT_HeadhunterAdapter.FindReadyQuest())
+    StorageUtil.SetFormValue(None, "aot_mmh_q", AoT_MMHAdapter.FindReadyQuest())
     Quest hq = StorageUtil.GetFormValue(None, "aot_head_q", None) as Quest
     Quest mq = StorageUtil.GetFormValue(None, "aot_mmh_q", None) as Quest
     Int h = 0
@@ -352,11 +367,26 @@ Function SyncGlobals() Global
         o = 1
     EndIf
     _SetGlobal("open", o)
+    ; the ladder cut (Fase 8): the exam topic shows when the points enable a promotion that asks for the
+    ; room exam and none is running; the plain promotion shows when the cut asks for no exam.
+    Int ex = 0
+    Int pr = 0
+    If AoT_Core.IsPromotionEligible() && AoT_Exam.ExamState() == 0
+        Int kind = AoT_Core.ExamKind(AoT_Core.GetRank())
+        If kind == 1
+            ex = 1
+        ElseIf kind == 0
+            pr = 1
+        EndIf
+    EndIf
+    _SetGlobal("exam", ex)
+    _SetGlobal("promote", pr)
 EndFunction
 
 Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
-    4 deliver the MMH hunt. Re-syncs the globals after.}
+    4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
+    Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Attendant.esp") as Quest
     AoT_Attendant a = q as AoT_Attendant
     If aiAction == 1
@@ -388,6 +418,14 @@ Function RunAction(Int aiAction, Int aiBand) Global
                 am.DeliverMMH(mq)
             EndIf
         EndIf
+    ElseIf aiAction == 5
+        Bool started = AoT_Exam.StartExam()
+        Debug.Trace("[AoT] Attendant RunAction: exam started=" + started)
+    ElseIf aiAction == 6
+        Int rb = AoT_Core.GetRank()
+        Int pb = AoT_Core.GetPoints()
+        Bool pro = AoT_Core.PromoteWithoutExam()
+        Debug.Trace("[AoT] Attendant promote=" + pro + " rank " + rb + " -> " + AoT_Core.GetRank() + " points " + pb + " -> " + AoT_Core.GetPoints())
     EndIf
     SyncGlobals()
 EndFunction

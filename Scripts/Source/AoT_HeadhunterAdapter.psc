@@ -18,6 +18,26 @@ Bool Function HasHeadhunter() Global
     Return f != None
 EndFunction
 
+Quest Function FindReadyQuest() Global
+    {E5 (D034 gap 1): scans the hunt quests listed in adapters.json for the one at stage 40, the one
+    the attendant takes delivery of. None when the mod is absent or no hunt is ready; no log either
+    way, so the soft path costs nothing (D007, D-35).}
+    If !Game.IsPluginInstalled("BountiesRedone_MissivesExtension.esp")
+        Return None
+    EndIf
+    String path = "../../../Config/AdventurersOfTamriel/adapters"
+    Int n = JsonUtil.IntListCount(path, "aot_adapter_head")
+    Int i = 0
+    While i < n
+        Quest q = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_adapter_head", i), "BountiesRedone_MissivesExtension.esp") as Quest
+        If q && q.GetStage() == 40
+            Return q
+        EndIf
+        i += 1
+    EndWhile
+    Return None
+EndFunction
+
 Function DeliverHead(Quest akHeadhunterQuest)
     {Called when the player hands over the head. akHeadhunterQuest is the foreign
     quest at stage 40; it is advanced to 100 and its own fragment pays.}

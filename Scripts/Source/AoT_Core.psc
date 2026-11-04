@@ -168,6 +168,32 @@ Bool Function IsPromotionEligible() Global
 	Return stepNeeded >= 0 && GetPoints() >= stepNeeded
 EndFunction
 
+Int Function ExamKind(Int aiRank) Global
+	{How the promotion out of aiRank is decided (the ladder cut, Fase 8, D-18): 0 no exam, 1 exam in the
+	exam room, 2 the emergency call (A to S, Fase 9). -1 on a table error. Data, not code: points.json.}
+	If aiRank < 0 || aiRank >= MaxRank()
+		Return -1
+	EndIf
+	If JsonUtil.IntListCount(TablePath(), "aot_exam_required") <= aiRank
+		Debug.Trace("[AoT] table: aot_exam_required missing or short")
+		Return -1
+	EndIf
+	Return JsonUtil.IntListGet(TablePath(), "aot_exam_required", aiRank)
+EndFunction
+
+Bool Function CanOfferExam() Global
+	{True when the attendant may offer the room exam: points enable it and the cut asks for one.}
+	Return IsPromotionEligible() && ExamKind(GetRank()) == 1
+EndFunction
+
+Bool Function PromoteWithoutExam() Global
+	{The ladder steps below the cut: the attendant promotes straight away. Same guard as the exam.}
+	If !IsPromotionEligible() || ExamKind(GetRank()) != 0
+		Return False
+	EndIf
+	Return Promote()
+EndFunction
+
 Int Function PointsForBand(Int aiBand) Global
 	{Points a completed contract of this band is worth; -1 on a bad band or a table error.}
 	If aiBand < 0 || aiBand > MaxBand()

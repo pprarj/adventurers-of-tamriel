@@ -182,6 +182,20 @@ endif
 
 Without the adapter the board serves only our own contracts. The board reads the Missives FormLists (`_M_ListQuests*`) **in game** via `Game.GetFormFromFile` so SkyPatcher injections are visible, and tests each entry as `Quest` before use. BadGuys lists are not read: it does not expose `_D_ListQuests*` (D029). A quest the board starts is only an offer (`aot_missives_offer`, band in `aot_offer_band`); the adapter opens the contract when the quest reaches stage 20 and closes it by stage 100, 103, 105 or 110 (D026). See D005/D006 for stage table, D-30 via(c) re-apply and E-12 above-rank note (StoresText on 00F0C6, alias Missive index 6).
 
+## The promotion exam (`AoT_Exam`, `AoT_Hall`)
+
+Promotion stays "points enable, a test promotes" (`IsPromotionEligible`, then `Promote`). Where the ladder asks for a test is data, in `Config/AdventurersOfTamriel/points.json` (indexed by the current rank, F to A): `aot_exam_required` (0 none, 1 exam room, 2 emergency call), `aot_exam_foes` (bandits) and `aot_exam_boss` (bosses).
+
+```
+Int  AoT_Core.ExamKind(Int aiRank) Global      ; -1 on a short table
+Bool AoT_Core.CanOfferExam() Global            ; eligible and the step asks for the room exam
+Bool AoT_Core.PromoteWithoutExam() Global      ; eligible and the step asks for none
+Bool AoT_Exam.StartExam() Global               ; spawns the foes at the examiner spot
+Function AoT_Exam.Tick() Global                ; win -> Promote; leaving, dying or a lost record -> abort
+```
+
+State lives under `aot_exam_state`, `aot_exam_rank`, `aot_exam_hall` and the FormList `aot_exam_foes`. Losing or fleeing touches neither points nor rank. `AoT_Hall.EnsureFixtures` places the guild board (`AdventurersOfTamriel_ExamTalk.esp`) and the examiner (`AdventurersOfTamriel_Exam.esp`) at the markers of the hall the player stands in. `AoT_HeadhunterAdapter.FindReadyQuest` and `AoT_MMHAdapter.FindReadyQuest` scan the quest ids of `adapters.json` for one at stage 40; with the mod absent they return `None`.
+
 ## The SKSE plugin
 
 The project has no C++ yet. This section will say how to configure and

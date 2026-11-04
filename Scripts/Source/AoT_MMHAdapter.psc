@@ -20,6 +20,26 @@ Bool Function CanTakeMMHBand(Int aiBand)
     Return AoT_Core.BandWeight(AoT_Core.GetRank(), aiBand) > 0
 EndFunction
 
+Quest Function FindReadyQuest() Global
+    {E5 (D034 gap 1): scans the hunt quests listed in adapters.json for the one at stage 40, the one
+    the attendant takes delivery of. None when the mod is absent or no hunt is ready; no log either
+    way, so the soft path costs nothing (D007, D-35).}
+    If !Game.IsPluginInstalled("MissivesMonsterHunt.esp")
+        Return None
+    EndIf
+    String path = "../../../Config/AdventurersOfTamriel/adapters"
+    Int n = JsonUtil.IntListCount(path, "aot_adapter_mmh")
+    Int i = 0
+    While i < n
+        Quest q = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_adapter_mmh", i), "MissivesMonsterHunt.esp") as Quest
+        If q && q.GetStage() == 40
+            Return q
+        EndIf
+        i += 1
+    EndWhile
+    Return None
+EndFunction
+
 Function DeliverMMH(Quest akMMHQuest)
     {Pays and closes an MMH hunt. akMMHQuest is the MMH_RewardScript quest at stage 40.}
     If !akMMHQuest
