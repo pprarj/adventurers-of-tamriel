@@ -39,6 +39,8 @@ Quest[] _failed
 Int _nFailed = 0
 Bool[] _missDry
 Bool[] _bandDry
+Quest[] _missSkip
+Int _nMissSkip = 0
 Quest[] _retired
 Int _nRetired = 0
 Bool _steal = False
@@ -83,6 +85,7 @@ Function Refresh(ObjectReference akBoard)
 	_bandDry = new Bool[6]
 	_retired = new Quest[64]
 	_nRetired = 0
+	LoadMissSkip()
 	RetireOwn(akBoard)
 	RetireMissives(akBoard)
 	OfferSituation(akBoard, hall)
@@ -135,6 +138,29 @@ Bool Function ResolveMissives()
 		MissVeryHigh = Game.GetFormFromFile(0x009451, "Missives.esp") as FormList
 	EndIf
 	Return MissLow != None
+EndFunction
+
+Function LoadMissSkip()
+	{D-27 on the board (D047): the Missives quests listed in contracts.json (aot_miss_skip_ids of
+	aot_miss_skip_plugin, the GatherOre of the VeryHigh lists) are never drawn. No record of theirs
+	is edited; a quest already offered before this list leaves by the normal cleanup.}
+	_missSkip = new Quest[16]
+	_nMissSkip = 0
+	String path = AoT_ContractsCtl.ContractsPath()
+	String plug = JsonUtil.GetStringValue(path, "aot_miss_skip_plugin", "")
+	If plug == "" || !Game.IsPluginInstalled(plug)
+		Return
+	EndIf
+	Int n = JsonUtil.IntListCount(path, "aot_miss_skip_ids")
+	Int i = 0
+	While i < n && _nMissSkip < _missSkip.Length
+		Quest q = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_miss_skip_ids", i), plug) as Quest
+		If q
+			_missSkip[_nMissSkip] = q
+			_nMissSkip += 1
+		EndIf
+		i += 1
+	EndWhile
 EndFunction
 
 FormList Function OurList(Int aiBand)
@@ -557,7 +583,7 @@ Quest Function PickStartableFromFLST(FormList akFLST, ObjectReference akBoard)
 	While tries > 0
 		tries -= 1
 		Quest q = akFLST.GetAt(Utility.RandomInt(0, n - 1)) as Quest
-		If q && !SkipThisRefresh(q)
+		If q && !SkipThisRefresh(q) && !InList(_missSkip, _nMissSkip, q)
 			If q.IsRunning()
 				ObjectReference owner = MissOfferBoard(q)
 				If q.GetStage() == 0 && (!owner || owner == akBoard)
