@@ -8,7 +8,9 @@ world event is on, and the emergency call when the cut asks for it. Offering is 
 Conserto fase 9 (D042): a quest whose Start() fails leaves this refresh and the board tries the
 next one; when the free quests run out, an untaken offer sitting on another board moves here; the
 situation goes first and retires the untaken offer of its common counterpart; a Missives quest is
-offered at most once per refresh and the stale cleanup never stops one offered in this refresh.}
+offered at most once per refresh and the stale cleanup never stops one offered in this refresh.
+Conserto fase 9b (D043): the Missives quest this board offered and nobody took leaves at the next
+refresh, as ours do; the stale cleanup leaves alone a Missives offer of another board.}
 
 FormList Property OurLow Auto
 FormList Property OurMed Auto
@@ -30,6 +32,8 @@ Int _nOffered = 0
 Quest[] _failed
 Int _nFailed = 0
 Bool[] _missDry
+Quest[] _retired
+Int _nRetired = 0
 Bool _steal = False
 
 Event OnActivate(ObjectReference akActionRef)
@@ -69,7 +73,10 @@ Function Refresh(ObjectReference akBoard)
 	_failed = new Quest[64]
 	_nFailed = 0
 	_missDry = new Bool[4]
+	_retired = new Quest[64]
+	_nRetired = 0
 	RetireOwn(akBoard)
+	RetireMissives(akBoard)
 	OfferSituation(akBoard, hall)
 	OfferContracts(akBoard, hall)
 	OfferEmergency(akBoard, hall)
@@ -102,7 +109,7 @@ Function MarkFailed(Quest akQuest)
 EndFunction
 
 Bool Function SkipThisRefresh(Quest akQuest)
-	Return InList(_offered, _nOffered, akQuest) || InList(_failed, _nFailed, akQuest)
+	Return InList(_offered, _nOffered, akQuest) || InList(_failed, _nFailed, akQuest) || InList(_retired, _nRetired, akQuest)
 EndFunction
 
 ; ---------------------------------------------------------------- pools
@@ -224,6 +231,47 @@ Function RetireOwn(ObjectReference akBoard)
 			EndWhile
 		EndIf
 		k += 1
+	EndWhile
+EndFunction
+
+ObjectReference Function MissOfferBoard(Quest akQuest)
+	{The board of an open Missives offer (still in aot_missives_offer), None otherwise. The adapter
+	drops the entry when the note is taken or the quest ends, so a stale board never answers.}
+	If StorageUtil.FormListFind(None, "aot_missives_offer", akQuest) < 0
+		Return None
+	EndIf
+	Return StorageUtil.GetFormValue(akQuest, "aot_offer_board", None) as ObjectReference
+EndFunction
+
+Function RetireMissive(Quest akQuest, ObjectReference akBoard)
+	{Same cleanup as the Missives board: stage 110 removes the note and stops the quest. The quest
+	leaves the offer list and is not offered again in this refresh.}
+	akQuest.SetStage(110)
+	StorageUtil.FormListRemove(None, "aot_missives_offer", akQuest, True)
+	StorageUtil.UnsetFormValue(akQuest, "aot_offer_board")
+	If _nRetired < _retired.Length && !InList(_retired, _nRetired, akQuest)
+		_retired[_nRetired] = akQuest
+		_nRetired += 1
+	EndIf
+	Debug.Trace("[AoT-F9] retired missive " + akQuest + " from " + akBoard)
+EndFunction
+
+Function RetireMissives(ObjectReference akBoard)
+	{Conserto fase 9b (D043): the Missives quests this board offered that nobody took (running,
+	stage 0, a note of theirs still in this board) leave it. A taken quest (stage 20), an offer of
+	another board and an offer of this refresh are not touched. Back to front: entries leave.}
+	Int i = StorageUtil.FormListCount(None, "aot_missives_offer") - 1
+	While i >= 0
+		Quest q = StorageUtil.FormListGet(None, "aot_missives_offer", i) as Quest
+		If q && !SkipThisRefresh(q) && StorageUtil.GetFormValue(q, "aot_offer_board", None) == akBoard
+			If q.IsRunning() && q.GetStage() == 0 && !q.IsStageDone(20)
+				ObjectReference note = MissiveNote(q)
+				If note && akBoard.GetItemCount(note.GetBaseObject()) >= 1
+					RetireMissive(q, akBoard)
+				EndIf
+			EndIf
+		EndIf
+		i -= 1
 	EndWhile
 EndFunction
 
@@ -432,12 +480,14 @@ Quest Function PickStartableFromFLST(FormList akFLST, ObjectReference akBoard)
 		Quest q = akFLST.GetAt(Utility.RandomInt(0, n - 1)) as Quest
 		If q && !SkipThisRefresh(q)
 			If q.IsRunning()
-				If q.GetStage() == 0
-					q.SetStage(110)
+				ObjectReference owner = MissOfferBoard(q)
+				If q.GetStage() == 0 && (!owner || owner == akBoard)
+					RetireMissive(q, akBoard)
 				EndIf
 			ElseIf q.Start()
 				ObjectReference note = MissiveNote(q)
 				If q.IsRunning() && note && akBoard.GetItemCount(note.GetBaseObject()) >= 1
+					StorageUtil.SetFormValue(q, "aot_offer_board", akBoard)
 					MarkOffered(q)
 					Return q
 				EndIf
