@@ -351,6 +351,10 @@ Bool Function TwinBusy(AoT_Contract akC)
 	If twin && twin.IsRunning()
 		Return True
 	EndIf
+	twin = akC.Counterpart2 as AoT_Contract
+	If twin && twin.IsRunning()
+		Return True
+	EndIf
 	Quest self_q = akC as Quest
 	Int b = 4
 	While b <= 5
@@ -360,7 +364,7 @@ Bool Function TwinBusy(AoT_Contract akC)
 			Int i = 0
 			While i < n
 				AoT_Contract x = L.GetAt(i) as AoT_Contract
-				If x && x.Counterpart == self_q && x.IsRunning()
+				If x && (x.Counterpart == self_q || x.Counterpart2 == self_q) && x.IsRunning()
 					Return True
 				EndIf
 				i += 1

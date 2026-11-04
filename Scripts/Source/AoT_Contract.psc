@@ -14,6 +14,10 @@ Int Property EventIndex = -1 Auto
 Quest Property Counterpart Auto
 {Situation contracts only (D042): the common contract of the same archetype and hold. Both fill
 the same places, so the board retires its untaken offer before it starts the situation.}
+Quest Property Counterpart2 Auto
+{Fase 10 (D047): a second quest of the same places (the A2 lair contract has the common contract
+as Counterpart and the emergency call as Counterpart2). The board never offers one while the
+other runs.}
 
 ; Stages: 0 offered, 20 hunt, 100 complete, 105 failed or abandoned, 110 retired offer.
 
