@@ -10,7 +10,11 @@ next one; when the free quests run out, an untaken offer sitting on another boar
 situation goes first and retires the untaken offer of its common counterpart; a Missives quest is
 offered at most once per refresh and the stale cleanup never stops one offered in this refresh.
 Conserto fase 9b (D043): the Missives quest this board offered and nobody took leaves at the next
-refresh, as ours do; the stale cleanup leaves alone a Missives offer of another board.}
+refresh, as ours do; the stale cleanup leaves alone a Missives offer of another board.
+Fase 10 (D047): the draw runs over every band up to AoT_Core.MaxBand(). Bands 4 (our A) and 5
+(our S) are our lists only, read by the id in contracts.json (aot_band_flst). A band is open when
+it is Low, paid, or free in the table (fee <= 0); a band whose pick came back empty leaves the
+draw of this refresh, so an empty band no longer eats the offers of the others.}
 
 FormList Property OurLow Auto
 FormList Property OurMed Auto
@@ -24,6 +28,8 @@ FormList MissLow
 FormList MissMed
 FormList MissHigh
 FormList MissVeryHigh
+FormList _ourA
+FormList _ourS
 Bool _busy = False
 
 ; per refresh (D042): what was offered and what failed to start, our side and Missives side
@@ -32,6 +38,7 @@ Int _nOffered = 0
 Quest[] _failed
 Int _nFailed = 0
 Bool[] _missDry
+Bool[] _bandDry
 Quest[] _retired
 Int _nRetired = 0
 Bool _steal = False
@@ -72,7 +79,8 @@ Function Refresh(ObjectReference akBoard)
 	_nOffered = 0
 	_failed = new Quest[64]
 	_nFailed = 0
-	_missDry = new Bool[4]
+	_missDry = new Bool[6]
+	_bandDry = new Bool[6]
 	_retired = new Quest[64]
 	_nRetired = 0
 	RetireOwn(akBoard)
@@ -138,8 +146,41 @@ FormList Function OurList(Int aiBand)
 		Return OurHigh
 	ElseIf aiBand == 3
 		Return OurVeryHigh
+	ElseIf aiBand == 4 || aiBand == 5
+		If !_ourA
+			String path = AoT_ContractsCtl.ContractsPath()
+			If JsonUtil.IntListCount(path, "aot_band_flst") > 5
+				_ourA = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 4), "AdventurersOfTamriel_Contracts.esp") as FormList
+				_ourS = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 5), "AdventurersOfTamriel_Contracts.esp") as FormList
+			EndIf
+		EndIf
+		If aiBand == 4
+			Return _ourA
+		EndIf
+		Return _ourS
 	EndIf
 	Return None
+EndFunction
+
+Bool Function BandFree(Int aiBand)
+	{D047: no fee in the table (fee <= 0) opens the band without a payment (A and S today). A
+	missing fee entry is a table error and keeps the band closed.}
+	If aiBand <= 0
+		Return True
+	EndIf
+	If JsonUtil.IntListCount(AoT_Core.TablePath(), "aot_fee_by_band") <= aiBand
+		Return False
+	EndIf
+	Return AoT_Attendant.FeeForBand(aiBand) <= 0
+EndFunction
+
+Bool Function BandOpen(Int aiBand)
+	{The paid gate of the draw: Low, paid, or free in the table; never a band that came back empty
+	in this refresh.}
+	If _bandDry[aiBand]
+		Return False
+	EndIf
+	Return aiBand == 0 || AoT_Core.IsBandPaid(aiBand) || BandFree(aiBand)
 EndFunction
 
 FormList Function MissList(Int aiBand)
@@ -210,11 +251,11 @@ EndFunction
 Function RetireOwn(ObjectReference akBoard)
 	{Yesterday's offers on this board that nobody took leave it.}
 	Int k = 0
-	While k < 6
+	While k < 8
 		FormList L = None
-		If k < 4
+		If k < 6
 			L = OurList(k)
-		ElseIf k == 4
+		ElseIf k == 6
 			L = OurSituation
 		Else
 			L = OurEmergency
@@ -340,10 +381,14 @@ Function OfferContracts(ObjectReference akBoard, Int aiHall)
 				EndIf
 			EndIf
 			started += 1
-		ElseIf aboveKind == 1
-			aboveOne += 1
-		ElseIf aboveKind == 2
-			aboveTwo += 1
+		Else
+			Debug.Trace("[AoT-F10] band " + band + " empty in this refresh, out of the draw")
+			_bandDry[band] = True
+			If aboveKind == 1
+				aboveOne += 1
+			ElseIf aboveKind == 2
+				aboveTwo += 1
+			EndIf
 		EndIf
 	EndWhile
 EndFunction
@@ -398,8 +443,8 @@ EndFunction
 Int Function DrawBand(Int aiRank)
 	Int total = 0
 	Int b = 0
-	While b <= 3
-		If AoT_Core.IsBandPaid(b) || b == 0
+	While b <= AoT_Core.MaxBand()
+		If BandOpen(b)
 			Int w = AoT_Core.BandWeight(aiRank, b)
 			If w > 0
 				total += w
@@ -413,8 +458,8 @@ Int Function DrawBand(Int aiRank)
 	Int roll = Utility.RandomInt(1, total)
 	Int acc = 0
 	b = 0
-	While b <= 3
-		If AoT_Core.IsBandPaid(b) || b == 0
+	While b <= AoT_Core.MaxBand()
+		If BandOpen(b)
 			Int w2 = AoT_Core.BandWeight(aiRank, b)
 			If w2 > 0
 				acc += w2
@@ -438,8 +483,8 @@ Int Function DrawBandAbove(Int aiRank, Int aiOffset)
 	Int baseRank = targetRank - 1
 	Int total = 0
 	Int b = 0
-	While b <= 3
-		If AoT_Core.IsBandPaid(b) || b == 0
+	While b <= AoT_Core.MaxBand()
+		If BandOpen(b)
 			If AoT_Core.BandWeight(baseRank, b) == 0 && AoT_Core.BandWeight(targetRank, b) > 0
 				total += AoT_Core.BandWeight(targetRank, b)
 			EndIf
@@ -452,8 +497,8 @@ Int Function DrawBandAbove(Int aiRank, Int aiOffset)
 	Int roll = Utility.RandomInt(1, total)
 	Int acc = 0
 	b = 0
-	While b <= 3
-		If AoT_Core.IsBandPaid(b) || b == 0
+	While b <= AoT_Core.MaxBand()
+		If BandOpen(b)
 			If AoT_Core.BandWeight(baseRank, b) == 0 && AoT_Core.BandWeight(targetRank, b) > 0
 				acc += AoT_Core.BandWeight(targetRank, b)
 				If roll <= acc
@@ -564,7 +609,7 @@ Function OfferSituation(ObjectReference akBoard, Int aiHall)
 			If !EventIsOn(c.EventIndex)
 				Return
 			EndIf
-			If !(AoT_Core.IsBandPaid(c.Band) || c.Band == 0) || AoT_Core.BandWeight(rank, c.Band) <= 0
+			If !(c.Band == 0 || AoT_Core.IsBandPaid(c.Band) || BandFree(c.Band)) || AoT_Core.BandWeight(rank, c.Band) <= 0
 				Debug.Trace("[AoT-F9] situation " + c + " skipped: band " + c.Band + " closed at rank " + rank)
 				Return
 			EndIf
