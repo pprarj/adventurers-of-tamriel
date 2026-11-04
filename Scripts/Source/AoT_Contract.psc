@@ -11,6 +11,9 @@ note, created in the board).}
 Int Property Band = 0 Auto
 Int Property HoldIndex = -1 Auto
 Int Property EventIndex = -1 Auto
+Quest Property Counterpart Auto
+{Situation contracts only (D042): the common contract of the same archetype and hold. Both fill
+the same places, so the board retires its untaken offer before it starts the situation.}
 
 ; Stages: 0 offered, 20 hunt, 100 complete, 105 failed or abandoned, 110 retired offer.
 
@@ -113,6 +116,17 @@ Function Retire()
 	MirrorStage(110)
 	Stop()
 	Debug.Trace("[AoT-F9] retired offer " + self)
+EndFunction
+
+Bool Function WaitStopped()
+	{After Retire or Stop: wait until the engine let the quest go, so that it can start again in
+	the same refresh (D042). True when it stopped within 3 s.}
+	Int n = 0
+	While (IsRunning() || IsStopping()) && n < 30
+		Utility.Wait(0.1)
+		n += 1
+	EndWhile
+	Return !IsRunning()
 EndFunction
 
 Function Finish(Int aiId)

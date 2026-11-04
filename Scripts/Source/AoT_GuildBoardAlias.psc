@@ -4,7 +4,11 @@ game day and per board, then opens the container. The pool of a band is our gene
 of this hold (any hold when this one has none) plus, with Missives installed, the Missives list of
 the same band, one item one chance. The band draw, the [Above Rank] quota (2 from rank+1, 1 from
 rank+2) and the paid gate are the ones of the Fase 8 board (D005). One situation contract when its
-world event is on, and the emergency call when the cut asks for it. Offering is not taking (D026).}
+world event is on, and the emergency call when the cut asks for it. Offering is not taking (D026).
+Conserto fase 9 (D042): a quest whose Start() fails leaves this refresh and the board tries the
+next one; when the free quests run out, an untaken offer sitting on another board moves here; the
+situation goes first and retires the untaken offer of its common counterpart; a Missives quest is
+offered at most once per refresh and the stale cleanup never stops one offered in this refresh.}
 
 FormList Property OurLow Auto
 FormList Property OurMed Auto
@@ -19,6 +23,14 @@ FormList MissMed
 FormList MissHigh
 FormList MissVeryHigh
 Bool _busy = False
+
+; per refresh (D042): what was offered and what failed to start, our side and Missives side
+Quest[] _offered
+Int _nOffered = 0
+Quest[] _failed
+Int _nFailed = 0
+Bool[] _missDry
+Bool _steal = False
 
 Event OnActivate(ObjectReference akActionRef)
 	Actor pl = Game.GetPlayer()
@@ -52,10 +64,45 @@ Function Refresh(ObjectReference akBoard)
 	StorageUtil.SetFloatValue(akBoard, "aot_board_day", now)
 	Int hall = AoT_Exam.HallIndexOfPlayer()
 	Debug.Trace("[AoT-F9] board refresh " + akBoard + " hall=" + hall + " rank=" + AoT_Core.GetRank() + " missives=" + ResolveMissives())
+	_offered = new Quest[64]
+	_nOffered = 0
+	_failed = new Quest[64]
+	_nFailed = 0
+	_missDry = new Bool[4]
 	RetireOwn(akBoard)
-	OfferContracts(akBoard, hall)
 	OfferSituation(akBoard, hall)
+	OfferContracts(akBoard, hall)
 	OfferEmergency(akBoard, hall)
+	Debug.Trace("[AoT-F9] board done " + akBoard + " offered=" + _nOffered + " failed=" + _nFailed + " items=" + akBoard.GetNumItems())
+EndFunction
+
+Bool Function InList(Quest[] akList, Int aiCount, Quest akQuest)
+	Int i = 0
+	While i < aiCount
+		If akList[i] == akQuest
+			Return True
+		EndIf
+		i += 1
+	EndWhile
+	Return False
+EndFunction
+
+Function MarkOffered(Quest akQuest)
+	If _nOffered < _offered.Length && !InList(_offered, _nOffered, akQuest)
+		_offered[_nOffered] = akQuest
+		_nOffered += 1
+	EndIf
+EndFunction
+
+Function MarkFailed(Quest akQuest)
+	If _nFailed < _failed.Length && !InList(_failed, _nFailed, akQuest)
+		_failed[_nFailed] = akQuest
+		_nFailed += 1
+	EndIf
+EndFunction
+
+Bool Function SkipThisRefresh(Quest akQuest)
+	Return InList(_offered, _nOffered, akQuest) || InList(_failed, _nFailed, akQuest)
 EndFunction
 
 ; ---------------------------------------------------------------- pools
@@ -104,35 +151,53 @@ FormList Function MissList(Int aiBand)
 	Return None
 EndFunction
 
-Int Function Collect(FormList akList, Int aiHall, Quest[] akOut, Bool abAnyHoldFallback)
-	{Fills akOut with the quests of akList that are free (not running) and of this hall.
-	With abAnyHoldFallback, a hall with none takes the free quests of every hall.}
+Int Function Collect(FormList akList, Int aiHall, Quest[] akOut, Bool abAnyHoldFallback, ObjectReference akBoard = None)
+	{Fills akOut with the first tier that has candidates, skipping what failed or was offered in
+	this refresh (D042): 1 the free quests of this hall; with abAnyHoldFallback, 2 the untaken
+	offers of this hall sitting on another board (akBoard given), 3 the free quests of every hall,
+	4 the untaken offers of every hall on another board. _steal tells a tier 2 or 4 answer.}
+	_steal = False
 	Int n = 0
 	If !akList
 		Return 0
 	EndIf
 	Int size = akList.GetSize()
-	Int i = 0
-	While i < size && n < akOut.Length
-		AoT_Contract c = akList.GetAt(i) as AoT_Contract
-		If c && !c.IsRunning() && c.HoldIndex == aiHall
-			akOut[n] = c as Quest
-			n += 1
-		EndIf
-		i += 1
-	EndWhile
-	If n == 0 && abAnyHoldFallback
-		i = 0
-		While i < size && n < akOut.Length
-			AoT_Contract c2 = akList.GetAt(i) as AoT_Contract
-			If c2 && !c2.IsRunning()
-				akOut[n] = c2 as Quest
-				n += 1
+	Int tier = 1
+	While tier <= 4 && n == 0
+		Bool moving = tier == 2 || tier == 4
+		If (tier == 1 || abAnyHoldFallback) && (!moving || akBoard)
+			Int i = 0
+			While i < size && n < akOut.Length
+				AoT_Contract c = akList.GetAt(i) as AoT_Contract
+				If c && (tier >= 3 || c.HoldIndex == aiHall) && !SkipThisRefresh(c as Quest)
+					If moving
+						If IsUntakenElsewhere(c, akBoard)
+							akOut[n] = c as Quest
+							n += 1
+						EndIf
+					ElseIf !c.IsRunning()
+						akOut[n] = c as Quest
+						n += 1
+					EndIf
+				EndIf
+				i += 1
+			EndWhile
+			If n > 0 && moving
+				_steal = True
 			EndIf
-			i += 1
-		EndWhile
-	EndIf
+		EndIf
+		tier += 1
+	EndWhile
 	Return n
+EndFunction
+
+Bool Function IsUntakenElsewhere(AoT_Contract akC, ObjectReference akBoard)
+	{An offer nobody took that sits on another board.}
+	If !akC.IsRunning() || akC.GetStage() >= 20
+		Return False
+	EndIf
+	ObjectReference other = StorageUtil.GetFormValue(akC as Quest, "aot_offer_board", None) as ObjectReference
+	Return other && other != akBoard
 EndFunction
 
 Function RetireOwn(ObjectReference akBoard)
@@ -170,13 +235,17 @@ Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy)
 	StorageUtil.SetFormValue(akQuest, "aot_offer_board", akBoard)
 	If !akQuest.Start()
 		Debug.Trace("[AoT-F9] start failed " + akQuest + " (" + asWhy + ")")
+		MarkFailed(akQuest)
 		Return False
 	EndIf
-	If !c.IsOfferable()
-		Debug.Trace("[AoT-F9] not offerable " + akQuest + " dungeon=" + c.DungeonLocation() + " target=" + c.TargetActor() + " note=" + c.NoteRef())
+	ObjectReference note = c.NoteRef()
+	If !c.IsOfferable() || akBoard.GetItemCount(note.GetBaseObject()) < 1
+		Debug.Trace("[AoT-F9] not offerable " + akQuest + " dungeon=" + c.DungeonLocation() + " target=" + c.TargetActor() + " note=" + note)
 		c.Retire()
+		MarkFailed(akQuest)
 		Return False
 	EndIf
+	MarkOffered(akQuest)
 	Debug.Trace("[AoT-F9] offer " + akQuest + " " + asWhy + " band=" + c.Band + " hold=" + c.HoldIndex + " dungeon=" + c.DungeonLocation() + " target=" + c.TargetActor())
 	Return True
 EndFunction
@@ -232,33 +301,50 @@ Function OfferContracts(ObjectReference akBoard, Int aiHall)
 EndFunction
 
 Quest Function PickFromBand(Int aiBand, ObjectReference akBoard, Int aiHall)
-	{One item, one chance: our free quests of the hold and the Missives list of the band.}
+	{One item, one chance: our candidates of the hold (Collect tiers) and the Missives list of the
+	band. A quest that fails to start leaves the refresh and the draw goes again (D042); None only
+	when no candidate is left.}
 	Quest[] cand = new Quest[64]
-	Int nOurs = Collect(OurList(aiBand), aiHall, cand, True)
 	FormList miss = MissList(aiBand)
-	Int nMiss = 0
-	If miss
-		nMiss = miss.GetSize()
-	EndIf
-	If nOurs + nMiss == 0
-		Return None
-	EndIf
-	Int roll = Utility.RandomInt(0, nOurs + nMiss - 1)
-	If roll < nOurs
-		If StartOwn(cand[roll], akBoard, "pool=ours")
-			Return cand[roll]
+	Int guard = 0
+	While guard < 64
+		guard += 1
+		Int nOurs = Collect(OurList(aiBand), aiHall, cand, True, akBoard)
+		Bool steal = _steal
+		Int nMiss = 0
+		If miss && !_missDry[aiBand]
+			nMiss = miss.GetSize()
 		EndIf
-		Return None
-	EndIf
-	Quest qm = PickStartableFromFLST(miss)
-	If qm
-		AoT_MissivesAdapter adapter = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Missives.esp") as AoT_MissivesAdapter
-		If adapter
-			adapter.RegisterOffer(qm, aiBand)
+		If nOurs + nMiss == 0
+			Return None
 		EndIf
-		Debug.Trace("[AoT-F9] offer " + qm + " pool=missives band=" + aiBand)
-	EndIf
-	Return qm
+		Int roll = Utility.RandomInt(0, nOurs + nMiss - 1)
+		If roll < nOurs
+			AoT_Contract c = cand[roll] as AoT_Contract
+			Bool ready = True
+			If steal
+				Debug.Trace("[AoT-F9] moving offer " + c + " from " + StorageUtil.GetFormValue(c as Quest, "aot_offer_board", None) + " to " + akBoard)
+				c.Retire()
+				ready = c.WaitStopped()
+			EndIf
+			If ready && StartOwn(cand[roll], akBoard, "pool=ours")
+				Return cand[roll]
+			EndIf
+			MarkFailed(cand[roll])
+		Else
+			Quest qm = PickStartableFromFLST(miss, akBoard)
+			If qm
+				AoT_MissivesAdapter adapter = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Missives.esp") as AoT_MissivesAdapter
+				If adapter
+					adapter.RegisterOffer(qm, aiBand)
+				EndIf
+				Debug.Trace("[AoT-F9] offer " + qm + " pool=missives band=" + aiBand)
+				Return qm
+			EndIf
+			_missDry[aiBand] = True
+		EndIf
+	EndWhile
+	Return None
 EndFunction
 
 Int Function DrawBand(Int aiRank)
@@ -332,8 +418,10 @@ Int Function DrawBandAbove(Int aiRank, Int aiOffset)
 	Return -1
 EndFunction
 
-Quest Function PickStartableFromFLST(FormList akFLST)
-	{Missives side, as in the Fase 8 board: a running quest still at stage 0 is cleaned up (110).}
+Quest Function PickStartableFromFLST(FormList akFLST, ObjectReference akBoard)
+	{Missives side, as in the Fase 8 board: a running quest still at stage 0 from an earlier refresh
+	is cleaned up (110). D042: a quest offered or failed in this refresh is skipped, never cleaned
+	up, and the offer counts only with the quest running and its note in the board.}
 	Int n = akFLST.GetSize()
 	If n == 0
 		Return None
@@ -342,16 +430,35 @@ Quest Function PickStartableFromFLST(FormList akFLST)
 	While tries > 0
 		tries -= 1
 		Quest q = akFLST.GetAt(Utility.RandomInt(0, n - 1)) as Quest
-		If q
+		If q && !SkipThisRefresh(q)
 			If q.IsRunning()
 				If q.GetStage() == 0
 					q.SetStage(110)
 				EndIf
 			ElseIf q.Start()
-				Return q
+				ObjectReference note = MissiveNote(q)
+				If q.IsRunning() && note && akBoard.GetItemCount(note.GetBaseObject()) >= 1
+					MarkOffered(q)
+					Return q
+				EndIf
+				Debug.Trace("[AoT-F9] missives not offerable " + q + " running=" + q.IsRunning() + " note=" + note)
+				If q.IsRunning()
+					q.SetStage(110)
+				EndIf
+				MarkFailed(q)
+			Else
+				MarkFailed(q)
 			EndIf
 		EndIf
 	EndWhile
+	Return None
+EndFunction
+
+ObjectReference Function MissiveNote(Quest akQuest)
+	ReferenceAlias ali = akQuest.GetAliasByName("Missive") as ReferenceAlias
+	If ali
+		Return ali.GetReference()
+	EndIf
 	Return None
 EndFunction
 
@@ -389,7 +496,9 @@ Bool Function EventIsOn(Int aiEvent)
 EndFunction
 
 Function OfferSituation(ObjectReference akBoard, Int aiHall)
-	{One situation contract of this hold when its event is on and its band is open to the rank.}
+	{One situation contract of this hold when its event is on and its band is open to the rank.
+	It runs before the common offers, and the untaken offer of its common counterpart (same places,
+	any board) leaves first (D042); a counterpart already taken keeps the place.}
 	If !OurSituation
 		Return
 	EndIf
@@ -408,6 +517,16 @@ Function OfferSituation(ObjectReference akBoard, Int aiHall)
 			If !(AoT_Core.IsBandPaid(c.Band) || c.Band == 0) || AoT_Core.BandWeight(rank, c.Band) <= 0
 				Debug.Trace("[AoT-F9] situation " + c + " skipped: band " + c.Band + " closed at rank " + rank)
 				Return
+			EndIf
+			AoT_Contract twin = c.Counterpart as AoT_Contract
+			If twin && twin.IsRunning()
+				If twin.GetStage() >= 20
+					Debug.Trace("[AoT-F9] situation " + c + " skipped: counterpart " + twin + " taken")
+					Return
+				EndIf
+				Debug.Trace("[AoT-F9] situation " + c + " retires counterpart " + twin)
+				twin.Retire()
+				twin.WaitStopped()
 			EndIf
 			StartOwn(c as Quest, akBoard, "situation event=" + c.EventIndex)
 			Return
