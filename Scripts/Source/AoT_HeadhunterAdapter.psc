@@ -1,7 +1,8 @@
 Scriptname AoT_HeadhunterAdapter extends Quest
 {Soft bridge to Headhunter / Bounties Redone.
 Plugin AdventurersOfTamriel_Headhunter.esp, master Headhunter - Bounties Redone.esp,
-and optionally BountiesRedone_MissivesExtension.esp (the stage-40 INFO lives there).
+and optionally BountiesRedone_MissivesExtension.esp (the stage-40 INFO lives there; the hunt
+quests themselves are Missives.esp records that the extension only overrides).
 The attendant's own INFO is conditioned on the foreign quest being at stage 40
 (GetStageDone 40, the condition the foreign INFO uses); its fragment calls
 DeliverHead. The foreign stage-100 fragment pays the gold (D007).
@@ -11,17 +12,14 @@ logging an error.}
 Bool Function HasHeadhunter() Global
     {Soft presence check without logging.}
     Form f = Game.GetFormFromFile(0x00000800, "Headhunter - Bounties Redone.esp")
-    If f
-        Return True
-    EndIf
-    f = Game.GetFormFromFile(0x00000F0C, "BountiesRedone_MissivesExtension.esp")
     Return f != None
 EndFunction
 
 Quest Function FindReadyQuest() Global
     {E5 (D034 gap 1): scans the hunt quests listed in adapters.json for the one at stage 40, the one
     the attendant takes delivery of. None when the mod is absent or no hunt is ready; no log either
-    way, so the soft path costs nothing (D007, D-35).}
+    way, so the soft path costs nothing (D007, D-35). The ids are Missives.esp quests: the extension
+    overrides them but owns none, so GetFormFromFile against the extension finds nothing.}
     If !Game.IsPluginInstalled("BountiesRedone_MissivesExtension.esp")
         Return None
     EndIf
@@ -29,7 +27,7 @@ Quest Function FindReadyQuest() Global
     Int n = JsonUtil.IntListCount(path, "aot_adapter_head")
     Int i = 0
     While i < n
-        Quest q = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_adapter_head", i), "BountiesRedone_MissivesExtension.esp") as Quest
+        Quest q = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_adapter_head", i), "Missives.esp") as Quest
         If q && q.GetStage() == 40
             Return q
         EndIf

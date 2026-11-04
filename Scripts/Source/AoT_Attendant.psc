@@ -269,12 +269,9 @@ EndFunction
 
 ; -- soft presence --
 Bool Function HasHeadhunter() Global
-    ; Any form from that plugin proves it is loaded.
+    ; Any form from that plugin proves it is loaded (0x800 is its own ARMO). The extension has
+    ; no form at 0xF0C of its own, so it is not probed.
     Form f = Game.GetFormFromFile(0x00000800, "Headhunter - Bounties Redone.esp")
-    ; Fallback: the extension plugin.
-    If !f
-        f = Game.GetFormFromFile(0x00000F0C, "BountiesRedone_MissivesExtension.esp")
-    EndIf
     Return f != None
 EndFunction
 
