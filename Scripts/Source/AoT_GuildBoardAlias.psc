@@ -76,7 +76,7 @@ Function Refresh(ObjectReference akBoard)
 	EndIf
 	StorageUtil.SetFloatValue(akBoard, "aot_board_day", now)
 	Int hall = AoT_Exam.HallIndexOfPlayer()
-	Debug.Trace("[AoT-F9] board refresh " + akBoard + " hall=" + hall + " rank=" + AoT_Core.GetRank() + " missives=" + ResolveMissives())
+	Debug.Trace("[AoT-F9] board refresh " + akBoard + " hall=" + hall + " rank=" + AoT_Core.GetRank() + " missives=" + ResolveMissives(hall))
 	_offered = new Quest[64]
 	_nOffered = 0
 	_failed = new Quest[64]
@@ -125,18 +125,39 @@ EndFunction
 
 ; ---------------------------------------------------------------- pools
 
-Bool Function ResolveMissives()
+Bool Function ResolveMissives(Int aiHall = -1)
 	{True when the Missives lists and the Fase 7 adapter are there; Missives quests are tracked
-	by that adapter, so without it they are not offered.}
+	by that adapter, so without it they are not offered. Fase 10 Emenda 3 (D048): with a hall
+	index (each refresh), the four lists of the hold of that hall are loaded from contracts.json
+	(aot_miss_flst: four ids of Missives.esp per hall, Low to VeryHigh; a hold without the list of
+	a band has the Whiterun one in the data). Without a hall, the lists already loaded stay, or
+	the default ones (aot_miss_flst_default) when none is.}
 	If !Game.IsPluginInstalled("Missives.esp") || !Game.IsPluginInstalled("AdventurersOfTamriel_Missives.esp")
 		Return False
 	EndIf
-	If !MissLow
-		MissLow = Game.GetFormFromFile(0x001D8F, "Missives.esp") as FormList
-		MissMed = Game.GetFormFromFile(0x001D90, "Missives.esp") as FormList
-		MissHigh = Game.GetFormFromFile(0x001D92, "Missives.esp") as FormList
-		MissVeryHigh = Game.GetFormFromFile(0x009451, "Missives.esp") as FormList
+	If aiHall < 0 && MissLow
+		Return True
 	EndIf
+	String path = AoT_ContractsCtl.ContractsPath()
+	String listKey = "aot_miss_flst"
+	Int base = aiHall * 4
+	If aiHall < 0 || JsonUtil.IntListCount(path, listKey) < base + 4
+		listKey = "aot_miss_flst_default"
+		base = 0
+	EndIf
+	If JsonUtil.IntListCount(path, listKey) < base + 4
+		Debug.Trace("[AoT-F10] no Missives lists in " + path + " (" + listKey + ")")
+		MissLow = None
+		MissMed = None
+		MissHigh = None
+		MissVeryHigh = None
+		Return False
+	EndIf
+	MissLow = Game.GetFormFromFile(JsonUtil.IntListGet(path, listKey, base), "Missives.esp") as FormList
+	MissMed = Game.GetFormFromFile(JsonUtil.IntListGet(path, listKey, base + 1), "Missives.esp") as FormList
+	MissHigh = Game.GetFormFromFile(JsonUtil.IntListGet(path, listKey, base + 2), "Missives.esp") as FormList
+	MissVeryHigh = Game.GetFormFromFile(JsonUtil.IntListGet(path, listKey, base + 3), "Missives.esp") as FormList
+	Debug.Trace("[AoT-F10] missives lists hall=" + aiHall + " " + listKey + " " + MissLow + " " + MissMed + " " + MissHigh + " " + MissVeryHigh)
 	Return MissLow != None
 EndFunction
 
