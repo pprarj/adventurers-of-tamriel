@@ -62,6 +62,7 @@ Contract states: 1 open, 2 completed, 3 abandoned, 4 expired.
 | Function | Returns |
 |---|---|
 | `Int GetRank()` | current rank, 0 to 6. One rank for the whole guild, every branch |
+| `Int GetAdventurerRank(Actor a)` | guild rank of any actor, 0 (F) to 6 (S); **-1 when the actor has no rank** (not a member, `None`, or the adventurers plugin is not loaded). Never 0 for "no rank": 0 is F. NPC members carry the rank as their rank in the faction `AoT_GuildFaction` (`AdventurersOfTamriel_Adventurers.esp`, form `0x800`), so a mod can also read it with `GetFactionRank`. The player is not in the faction: for the player it is `GetRank()` once the player has joined, -1 before |
 | `Int GetPoints()` | points earned inside the current rank; never below 0 |
 | `Bool IsPromotionEligible()` | points reached the ladder step of the current rank. Points only make the player eligible; the exam is what promotes |
 | `Int LadderStep(Int rank)` | points needed inside `rank` to become eligible; -1 at S or on a table error |

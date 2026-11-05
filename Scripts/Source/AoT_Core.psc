@@ -43,6 +43,32 @@ Int Function GetRank() Global
 	Return StorageUtil.GetIntValue(None, "aot_rank", 0)
 EndFunction
 
+Int Function GetAdventurerRank(Actor akActor) Global
+	{Guild rank of any actor, 0 (F) to 6 (S), or -1 when the actor has no rank (not a member, None, or the
+	adventurers plugin is not loaded). -1 is never F: F is 0. An NPC carries its rank as its rank in the
+	guild faction (AoT_GuildFaction), so a mod without this script can read it with GetFactionRank. The player
+	is not in that faction (D-14: one wallet); for the player this returns GetRank() once the player has
+	joined (the first contract stamps the join day), and -1 before that.}
+	If akActor == None
+		Return -1
+	EndIf
+	If akActor == Game.GetPlayer()
+		If StorageUtil.HasIntValue(None, "aot_joined_day")
+			Return GetRank()
+		EndIf
+		Return -1
+	EndIf
+	Faction f = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Adventurers.esp") as Faction
+	If f == None
+		Return -1
+	EndIf
+	Int r = akActor.GetFactionRank(f)
+	If r < 0 || r > 6
+		Return -1
+	EndIf
+	Return r
+EndFunction
+
 Int Function GetPoints() Global
 	{Points earned inside the current rank. Never below 0.}
 	Return StorageUtil.GetIntValue(None, "aot_points", 0)
