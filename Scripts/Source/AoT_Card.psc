@@ -358,6 +358,10 @@ String Function BuildPayload()
 	EndIf
 	text += "c_rank|" + rank + eol
 	text += "c_maxrank|" + AoT_Core.MaxRank() + eol
+	String mat = JsonUtil.StringListGet(AoT_Core.TablePath(), "aot_rank_material", rank)
+	; Always sent, empty when the table has no entry: the page keeps the keys of the last payload.
+	text += "c_mat|" + mat + eol
+	text += "c_ficha|" + RankFichas(rank) + eol
 	text += "c_points|" + AoT_Core.GetPoints() + eol
 	text += "c_step|" + step + eol
 	If AoT_Core.IsPromotionEligible()
@@ -379,6 +383,22 @@ String Function BuildPayload()
 		b += 1
 	EndWhile
 	Return text
+EndFunction
+
+String Function RankFichas(Int aiRank)
+	{What the rank already unlocks, for the card: "band:points,..." for every band whose draw weight is above zero at this rank. Both numbers come from points.json at open time.}
+	String out = ""
+	Int b = 0
+	While b <= AoT_Core.MaxBand()
+		If AoT_Core.BandWeight(aiRank, b) > 0
+			If out != ""
+				out += ","
+			EndIf
+			out += b + ":" + AoT_Core.PointsForBand(b)
+		EndIf
+		b += 1
+	EndWhile
+	Return out
 EndFunction
 
 ; ---------------------------------------------------------------------------

@@ -38,12 +38,12 @@
   .gem { position:absolute; width:9px; height:9px; background:#d9cfa8; -webkit-transform:rotate(45deg); transform:rotate(45deg); }
   .cin { font-family:"AoT Cinzel", Georgia, serif; }
 
-  #top { position:relative; height:166px; }
+  #top { position:relative; height:180px; }
   #diamond { position:absolute; left:6px; top:6px; width:112px; height:112px; box-sizing:border-box; padding:4px; border:1px solid #d9cfa8; -webkit-transform:rotate(45deg); transform:rotate(45deg); }
   #diamondIn { width:100%; height:100%; box-sizing:border-box; padding:4px; border:1px solid rgba(217,207,168,0.4); }
   #portrait { position:relative; width:100%; height:100%; overflow:hidden; background:#12302a; box-shadow:inset 0 3px 8px rgba(0,0,0,0.65); }
   #portrait svg { position:absolute; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; -webkit-transform:rotate(-45deg); transform:rotate(-45deg); }
-  #who { position:absolute; left:158px; top:6px; right:330px; }
+  #who { position:absolute; left:158px; top:6px; right:390px; }
   #kicker { font-size:12px; letter-spacing:3px; color:#8fe3c0; }
   #name { font-size:38px; font-weight:700; line-height:1.1; margin:6px 0 4px 0; white-space:nowrap; overflow:hidden; text-shadow:0 1px 0 rgba(0,0,0,0.45); }
   #sub { font-size:18px; color:#c9dccf; }
@@ -53,19 +53,22 @@
   #barwrap { display:inline-block; vertical-align:middle; width:220px; height:7px; margin-left:12px; background:rgba(0,0,0,0.32); border-radius:4px; overflow:hidden; }
   #bar { height:7px; width:0; background:#6fe3b4; }
   #exam { margin-top:6px; font-size:14px; color:#7ff0c4; display:none; }
-  #ppbox { position:absolute; right:190px; top:12px; text-align:right; }
+  #ppbox { position:absolute; right:250px; top:12px; text-align:right; }
   #pplabel { font-size:11px; letter-spacing:2px; color:#a9c9bd; }
   #pp { font-size:54px; font-weight:700; line-height:1; color:#7ff0c4; text-shadow:0 1px 0 rgba(0,0,0,0.5); }
-  #stamp { position:absolute; right:14px; top:2px; width:116px; text-align:center; }
-  #ring { width:116px; height:116px; box-sizing:border-box; border-radius:58px; border:3px solid #b7a3ff; background:rgba(183,163,255,0.08); -webkit-transform:rotate(-9deg); transform:rotate(-9deg); }
+  #stamp { position:absolute; right:0; top:2px; width:236px; text-align:center; }
+  #ring { margin:0 auto; width:116px; height:116px; box-sizing:border-box; border-radius:58px; border:3px solid #b7a3ff; background:rgba(183,163,255,0.08); -webkit-transform:rotate(-9deg); transform:rotate(-9deg); }
   #ring2 { width:92px; height:92px; box-sizing:border-box; margin:8px 0 0 8px; border-radius:46px; border:1px dashed rgba(183,163,255,0.8); text-align:center; }
   #ring2 .r { display:block; padding-top:12px; font-size:10px; letter-spacing:3px; color:#b7a3ff; }
   #rankletter { display:block; font-size:50px; font-weight:700; line-height:56px; color:#c9b9ff; }
-  #rankname { margin-top:6px; font-size:15px; letter-spacing:2px; color:#d9cfa8; }
+  #rankname { margin-top:6px; font-size:14px; letter-spacing:1px; color:#d9cfa8; white-space:nowrap; }
+  #fichas { margin-top:5px; font-size:12px; line-height:16px; color:#c9dccf; }
+  #fichas .ficha { display:inline-block; margin:0 3px 3px; padding:0 7px; border:1px solid rgba(217,207,168,0.5); border-radius:9px; background:rgba(0,0,0,0.25); white-space:nowrap; }
+  #fichas .ficha b { color:#7ff0c4; font-weight:700; }
   .rule { height:4px; border-top:1px solid rgba(217,207,168,0.55); border-bottom:1px solid rgba(217,207,168,0.25); }
 
-  #cols { position:relative; height:420px; margin-top:12px; }
-  .col { position:absolute; top:0; height:420px; box-sizing:border-box; padding:12px 8px 8px; background:rgba(0,0,0,0.2); box-shadow:inset 0 2px 6px rgba(0,0,0,0.5); border-radius:6px; text-align:center; }
+  #cols { position:relative; height:408px; margin-top:12px; }
+  .col { position:absolute; top:0; height:408px; box-sizing:border-box; padding:12px 8px 8px; background:rgba(0,0,0,0.2); box-shadow:inset 0 2px 6px rgba(0,0,0,0.5); border-radius:6px; text-align:center; }
   .box { position:relative; width:164px; height:300px; margin:0 auto; }
   .edge { position:absolute; height:2px; background:rgba(143,227,192,0.35); -webkit-transform-origin:0 50%; transform-origin:0 50%; }
   .edge.on { background:rgba(111,227,180,0.8); }
@@ -110,6 +113,7 @@
     <div id="stamp">
       <div id="ring"><div id="ring2"><span class="r cin">RANK</span><span id="rankletter" class="cin">?</span></div></div>
       <div id="rankname" class="cin">Rank ?</div>
+      <div id="fichas"></div>
     </div>
   </div>
   <div class="rule"></div>
@@ -221,6 +225,37 @@
     c.style.transform = t;
   }
 
+  // ------------------------------------------------------------------ fichas
+  // What the rank already unlocks: "band:points,..." from c_ficha, built by Papyrus from points.json.
+  function drawFichas() {
+    var host = byId("fichas");
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    var raw = S["c_ficha"] === undefined ? "" : String(S["c_ficha"]);
+    if (raw === "") { return; }
+    var items = raw.split(",");
+    for (var i = 0; i < items.length; i++) {
+      var kv = items[i].split(":");
+      var band = parseInt(kv[0], 10);
+      if (isNaN(band) || band < 0 || band >= BAND_NAMES.length) { continue; }
+      var chip = el("span", "ficha");
+      chip.appendChild(document.createTextNode(BAND_NAMES[band] + " "));
+      var pts = el("b", "");
+      pts.textContent = "+" + (kv[1] === undefined ? "?" : kv[1]);
+      chip.appendChild(pts);
+      host.appendChild(chip);
+    }
+  }
+
+  // Papyrus strings ignore case and hand back the first spelling the game ever saw ("IRON"): fix the case here.
+  function materialName(m) { m = String(m); return m.charAt(0).toUpperCase() + m.substr(1).toLowerCase(); }
+
+  function fichasText() {
+    var chips = byId("fichas").getElementsByClassName("ficha");
+    var out = [];
+    for (var i = 0; i < chips.length; i++) { out.push(chips[i].textContent.replace(/\s+/g, " ")); }
+    return out.join(";");
+  }
+
   // ------------------------------------------------------------------ header
   function drawHeader() {
     var rank = num(S, "c_rank");
@@ -234,7 +269,8 @@
     setText("level", S["c_level"] === undefined ? "-" : num(S, "c_level"));
     setText("joined", S["c_joined"] === undefined ? "Joined -" : "Joined " + dateText(num(S, "c_joined")));
     setText("rankletter", letter);
-    setText("rankname", "Rank " + letter);
+    setText("rankname", S["c_mat"] ? materialName(S["c_mat"]) + " Adventurer" : "Rank " + letter);
+    drawFichas();
     setText("pp", S["c_perkok"] === "0" || S["c_pp"] === undefined ? "-" : num(S, "c_pp"));
 
     var pct = 0;
@@ -405,6 +441,7 @@
       send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
         "|rank=" + byId("rankletter").textContent + "|points=" + (drawnPoints ? drawnPoints[0] : "?") +
         "|level=" + byId("level").textContent + "|pp=" + byId("pp").textContent +
+        "|seal=" + byId("rankname").textContent + "|fichas=" + fichasText() +
         "|cols=" + byId("cols").getElementsByClassName("col").length +
         "|nodes=" + byId("cols").getElementsByClassName("node").length);
     } catch (err) {
