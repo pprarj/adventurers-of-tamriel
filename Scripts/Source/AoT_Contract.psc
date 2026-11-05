@@ -18,6 +18,9 @@ Quest Property Counterpart2 Auto
 {Fase 10 (D047): a second quest of the same places (the A2 lair contract has the common contract
 as Counterpart and the emergency call as Counterpart2). The board never offers one while the
 other runs.}
+Quest Property Counterpart3 Auto
+{Fase 10 (D047): a third quest of the same places (the S2 dwemer contract shares them with the
+common contract, the emergency call and the A2 lair contract).}
 
 ; Stages: 0 offered, 20 hunt, 100 complete, 105 failed or abandoned, 110 retired offer.
 
