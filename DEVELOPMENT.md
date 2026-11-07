@@ -34,6 +34,53 @@ separator is `;`.
 If the mod depends on another framework's scripts, that framework's
 `Scripts\Source` joins the `-i=` list, and a row joins the table above.
 
+## Public contract for other mods (version 1.0)
+
+This is what a mod that wants to read the guild may rely on. Everything else in this file describes the mod's own
+internals and may change between releases.
+
+**Contract version: 1.0.** The version changes only by these rules: a new read function or a new optional key is a
+minor step (1.1); a changed meaning, a changed return value, a renamed or removed function, or a changed persisted key
+is a major step (2.0) and ships with the old name kept for one major release where that is possible. A mod that calls
+only what is listed below keeps working across every 1.x.
+
+**Soft dependency.** Call these scripts only after checking that the mod is installed, so yours still loads without it:
+
+```
+if Game.IsPluginInstalled("AdventurersOfTamriel.esl")
+    Int rank = AoT_Core.GetRank()
+endif
+```
+
+All functions are `Global` on the script `AoT_Core`. They never write, never block and never throw; they return the
+sentinel written next to them when the guild is absent or the save is empty.
+
+| Function | Returns | If absent / unknown |
+|---|---|---|
+| `Int GetRank()` | the player's rank, 0 (F) to 6 (S). **0 also means "never joined"**: to tell F from not joined, use the next row with `Game.GetPlayer()` | 0 |
+| `Int GetAdventurerRank(Actor a)` | the rank of any actor that belongs to the guild, 0 to 6. For the player: the rank once the player has taken a first contract | **-1** (not a member, the player before the first contract, `None`, or `_Adventurers.esp` not loaded) |
+| `Int GetPoints()` | points earned inside the current rank | 0 |
+| `Bool IsPromotionEligible()` | the points reached the step of the current rank | False |
+| `Int LadderStep(Int rank)` | points needed inside `rank` to become eligible | -1 |
+| `Int SchemaVersion()` | version of the persisted format in this save | 0 |
+
+NPC members can also be read with no script at all: `GetFactionRank` on the faction `AoT_GuildFaction`
+(`AdventurersOfTamriel_Adventurers.esp`, form `0x800`) returns the rank, and **-2 for a non-member** (the faction call,
+not `GetAdventurerRank`, which maps that case to -1). The player is not in the faction.
+
+**Not part of the contract (internal; may change in any release):** every write function (`OpenContract`,
+`CompleteContract`, `AbandonContract`, `ExpireContract`, `VoidContract`, `AdjustPoints`, `MarkBandPaid`, `Promote`,
+`SetCardTree`), the contract ledger reads, the card and exam scripts, and the persisted keys. A mod must not write
+guild state. If it needs the guild to react to something (for example a contract of its own), ask for a function in
+an issue instead of calling a write.
+
+**Promotion event: not in 1.0.** The mod does not send a mod event when the rank changes, and nothing here promises
+one. The cheap, supported way to notice a promotion is to read `GetRank()` when your own code wakes (a menu opening, a
+quest stage, a cell change) and compare it with the value you stored. An event, if it is added, arrives as a minor
+step (1.1) with its name and arguments written here first.
+
+The sections below document the whole core, for contributors. Only the table above is the contract.
+
 ## The core API (`AoT_Core`)
 
 `Scripts/Source/AoT_Core.psc` is the surface every other part of the mod
