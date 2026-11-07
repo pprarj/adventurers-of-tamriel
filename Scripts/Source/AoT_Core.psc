@@ -384,6 +384,8 @@ Bool Function Promote() Global
 	EndIf
 	StorageUtil.SetIntValue(None, "aot_rank", current + 1)
 	StorageUtil.SetIntValue(None, "aot_points", 0)
+	; Public contract 1.0: tell other mods. numArg = the new rank (0 = F ... 6 = S), strArg empty.
+	Game.GetPlayer().SendModEvent("AoT_Promoted", "", (current + 1) as Float)
 	Return True
 EndFunction
 

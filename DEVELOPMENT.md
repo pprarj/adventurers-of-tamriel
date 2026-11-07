@@ -74,10 +74,20 @@ not `GetAdventurerRank`, which maps that case to -1). The player is not in the f
 guild state. If it needs the guild to react to something (for example a contract of its own), ask for a function in
 an issue instead of calling a write.
 
-**Promotion event: not in 1.0.** The mod does not send a mod event when the rank changes, and nothing here promises
-one. The cheap, supported way to notice a promotion is to read `GetRank()` when your own code wakes (a menu opening, a
-quest stage, a cell change) and compare it with the value you stored. An event, if it is added, arrives as a minor
-step (1.1) with its name and arguments written here first.
+**Promotion event (1.0).** When a promotion happens, `AoT_Core.Promote()` sends the mod event `AoT_Promoted` once, after the rank has risen and the points have restarted. `numArg` is the new rank in the scale of `GetRank()` (0 = F ... 6 = S); `strArg` is empty; the sender is the player. A refused promotion (not eligible, or already S) sends nothing. Register for it the usual way:
+
+```
+Event OnInit()
+    RegisterForModEvent("AoT_Promoted", "OnAoTPromoted")
+EndEvent
+
+Event OnAoTPromoted(String asEventName, String asStr, Float afNewRank, Form akSender)
+    Int newRank = afNewRank as Int
+    ; react here
+EndEvent
+```
+
+The registration is per script and does not survive a missing mod, so register again on game load if your script needs it. The name, the arguments and their meaning are frozen for every 1.x.
 
 The sections below document the whole core, for contributors. Only the table above is the contract.
 

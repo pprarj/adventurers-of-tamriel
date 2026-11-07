@@ -65,14 +65,7 @@ Function EnsureAttendant() Global
         i += 1
     EndWhile
     If !hall
-        If !Game.IsPluginInstalled("AdventurersOfTamriel_GuildHall.esp")
-            Return
-        EndIf
-        hall = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_GuildHall.esp") as Cell
-        If !hall || here != hall
-            Return
-        EndIf
-        spot = Game.GetFormFromFile(0x00097A, "AdventurersOfTamriel_GuildHall.esp") as ObjectReference
+        Return
     EndIf
     Actor cur = StorageUtil.GetFormValue(None, attKey, None) as Actor
     If cur && !cur.IsDead() && cur.GetParentCell() == hall
