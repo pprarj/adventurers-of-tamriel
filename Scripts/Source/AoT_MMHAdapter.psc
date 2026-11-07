@@ -3,10 +3,12 @@ Scriptname AoT_MMHAdapter extends Quest
 Plugin AdventurersOfTamriel_MMH.esp, master MissivesMonsterHunt.esp.
 MMH has no rank of its own, only the MMH_HuntsCompleted counter. The guild rank
 is the gate (D007): MMH respects the rank or stays out. Delivery calls
-MMH_RewardScript.PayAndClose(), the same public function the MMH broker calls.
+MMH_RewardScript.PayAndClose(), the same public function the MMH broker calls - but that call lives in the
+child script AoT_MMHPayment, which ships only with the MMH option of the installer (the core never names a
+third-party type).
 Presence is probed with Game.GetFormFromFile, so a missing MMH hides the branch
-and logs nothing (D007). The file imports the MMH source at compile time so
-PayAndClose resolves; at runtime the call is guarded by HasMMH().}
+and logs nothing (D007). THIS script names no MMH type: the base DeliverMMH below pays
+nothing and the child overrides it (the child imports the MMH source at compile time).}
 
 Bool Function HasMMH() Global
     Form f = Game.GetFormFromFile(0x06000845, "MissivesMonsterHunt.esp")
@@ -41,27 +43,7 @@ Quest Function FindReadyQuest() Global
 EndFunction
 
 Function DeliverMMH(Quest akMMHQuest)
-    {Pays and closes an MMH hunt. akMMHQuest is the MMH_RewardScript quest at stage 40.}
-    If !akMMHQuest
-        Debug.Trace("[AoT-MMH] DeliverMMH: no quest")
-        Return
-    EndIf
-    If !HasMMH()
-        Debug.Trace("[AoT-MMH] DeliverMMH: MMH not present")
-        Return
-    EndIf
-    If akMMHQuest.GetStage() != 40
-        Debug.Trace("[AoT-MMH] DeliverMMH: stage is " + akMMHQuest.GetStage() + " not 40")
-        Return
-    EndIf
-    ; The MMH quest IS an MMH_RewardScript (extends Quest). If the cast fails
-    ; (another family), fall back to stage 100.
-    MMH_RewardScript m = akMMHQuest as MMH_RewardScript
-    If m
-        m.PayAndClose()
-        Debug.Trace("[AoT-MMH] DeliverMMH -> PayAndClose on " + akMMHQuest)
-    Else
-        akMMHQuest.SetStage(100)
-        Debug.Trace("[AoT-MMH] DeliverMMH -> SetStage 100 fallback on " + akMMHQuest)
-    EndIf
+    {Base version: pays nothing. The MMH option attaches AoT_MMHPayment (extends this script), which overrides
+    this function with the real payout. Reached only if the quest carries the base script by mistake.}
+    Debug.Trace("[AoT-MMH] DeliverMMH: no payer attached (AoT_MMHPayment missing), nothing paid")
 EndFunction
