@@ -71,10 +71,10 @@ Function EnsureAttendant() Global
     If cur && !cur.IsDead() && cur.GetParentCell() == hall
         Return
     EndIf
-    If !Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
+    If !Game.IsPluginInstalled("AdventurersOfTamriel.esp")
         Return
     EndIf
-    ActorBase base = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Actors.esp") as ActorBase
+    ActorBase base = Game.GetFormFromFile(0x000D99, "AdventurersOfTamriel.esp") as ActorBase
     If !spot || !base
         Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
         Return
@@ -100,8 +100,8 @@ Function ProbeReport() Global
     Int b = 1
     While b <= AoT_Core.MaxBand()
         GlobalVariable g = None
-        If Game.IsPluginInstalled("AdventurersOfTamriel_Actors.esp")
-            g = Game.GetFormFromFile(_GlobalId("fee" + b), "AdventurersOfTamriel_Actors.esp") as GlobalVariable
+        If Game.IsPluginInstalled("AdventurersOfTamriel.esp")
+            g = Game.GetFormFromFile(_GlobalId("fee" + b), "AdventurersOfTamriel.esp") as GlobalVariable
         EndIf
         Float gv = -1.0
         If g
@@ -206,7 +206,7 @@ Bool Function TryAbandonById(Int aiId)
     If oc && AoT_Core.FindOpenContract(own) == aiId
         Return oc.TryAbandon()
     EndIf
-    Quest q2b = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel.esl") as Quest
+    Quest q2b = Game.GetFormFromFile(0x000D97, "AdventurersOfTamriel.esp") as Quest
     If q2b && AoT_Core.FindOpenContract(q2b) == aiId
         AoT_Contract_2b contract = q2b as AoT_Contract_2b
         If contract
@@ -274,37 +274,37 @@ Bool Function HasMMH() Global
 EndFunction
 
 ; -- dialogue glue (Part F, D034) --
-; The attendant's topics live in AdventurersOfTamriel_Actors.esp. Their conditions read
+; The attendant's topics live in AdventurersOfTamriel.esp. Their conditions read
 ; globals (gold needs a global to compare against); SyncGlobals keeps them true to the
 ; save. Fragments call RunAction. Every entry is global: a topic fragment has no quest.
 Int Function _GlobalId(String asName) Global
     If asName == "fee1"
-        Return 0x000804
+        Return 0x000D9D
     ElseIf asName == "fee2"
-        Return 0x000805
+        Return 0x000D9E
     ElseIf asName == "fee3"
-        Return 0x000806
+        Return 0x000D9F
     ElseIf asName == "fee4"
-        Return 0x000807
+        Return 0x000DA0
     ElseIf asName == "fee5"
-        Return 0x000808
+        Return 0x000DA1
     ElseIf asName == "head"
-        Return 0x000809
+        Return 0x000DA2
     ElseIf asName == "mmh"
-        Return 0x00080A
+        Return 0x000DA3
     ElseIf asName == "exam"
-        Return 0x000800
+        Return 0x000E2F
     ElseIf asName == "promote"
-        Return 0x000801
+        Return 0x000E30
     EndIf
-    Return 0x00080B
+    Return 0x000DA4
 EndFunction
 
 Function _SetGlobal(String asName, Int aiValue) Global
     ; the exam and promotion globals live in the ExamTalk plugin (D037); the rest in Actors
-    String plug = "AdventurersOfTamriel_Actors.esp"
+    String plug = "AdventurersOfTamriel.esp"
     If asName == "exam" || asName == "promote"
-        plug = "AdventurersOfTamriel_ExamTalk.esp"
+        plug = "AdventurersOfTamriel.esp"
     EndIf
     If !Game.IsPluginInstalled(plug)
         Return
@@ -384,7 +384,7 @@ Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
     Re-syncs the globals after.}
-    Quest q = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Attendant.esp") as Quest
+    Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
     AoT_Attendant a = q as AoT_Attendant
     If aiAction == 1
         If a && ShouldShowFee(aiBand)

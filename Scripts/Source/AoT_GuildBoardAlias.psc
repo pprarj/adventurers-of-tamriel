@@ -197,8 +197,8 @@ FormList Function OurList(Int aiBand)
 		If !_ourA
 			String path = AoT_ContractsCtl.ContractsPath()
 			If JsonUtil.IntListCount(path, "aot_band_flst") > 5
-				_ourA = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 4), "AdventurersOfTamriel_Contracts.esp") as FormList
-				_ourS = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 5), "AdventurersOfTamriel_Contracts.esp") as FormList
+				_ourA = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 4), "AdventurersOfTamriel.esp") as FormList
+				_ourS = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_band_flst", 5), "AdventurersOfTamriel.esp") as FormList
 			EndIf
 		EndIf
 		If aiBand == 4

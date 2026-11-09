@@ -58,7 +58,7 @@ Int Function GetAdventurerRank(Actor akActor) Global
 		EndIf
 		Return -1
 	EndIf
-	Faction f = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Adventurers.esp") as Faction
+	Faction f = Game.GetFormFromFile(0x000E36, "AdventurersOfTamriel.esp") as Faction
 	If f == None
 		Return -1
 	EndIf
@@ -402,7 +402,7 @@ Function _MigrateBootContract() Global
 		Return
 	EndIf
 	StorageUtil.SetIntValue(None, "aot_boot_contract_checked", 1)
-	Quest q = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel.esl") as Quest
+	Quest q = Game.GetFormFromFile(0x000D97, "AdventurersOfTamriel.esp") as Quest
 	If !q
 		Return
 	EndIf

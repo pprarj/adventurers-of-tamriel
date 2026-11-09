@@ -18,7 +18,7 @@ Event OnPageReset(String asPage)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	If Lodestone.GetVersion() < 1037000
 		AddHeaderOption("Perk trees")
-		AddTextOption("Needs Lodestone 1.37.0 or newer", "", OPTION_FLAG_DISABLED)
+		AddTextOption("Needs Lodestone 1.6.0 or newer", "", OPTION_FLAG_DISABLED)
 		Return
 	EndIf
 	BuildList()

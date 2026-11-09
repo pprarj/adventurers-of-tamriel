@@ -12,11 +12,11 @@ String Function ContractsPath() Global
 EndFunction
 
 String Function PluginName() Global
-	Return "AdventurersOfTamriel_Contracts.esp"
+	Return "AdventurersOfTamriel.esp"
 EndFunction
 
 AoT_ContractsCtl Function Get() Global
-	Return Game.GetFormFromFile(0x000800, PluginName()) as AoT_ContractsCtl
+	Return Game.GetFormFromFile(0x000DB7, PluginName()) as AoT_ContractsCtl
 EndFunction
 
 Event OnInit()

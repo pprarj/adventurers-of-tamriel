@@ -27,7 +27,7 @@ String Property EvtReady   = "LodestoneWebUIViewReady" AutoReadOnly
 ; IM_Core.WebUIMinVersion); 1022000 (1.22.0) is where WebUIFocusView exists.
 Int Property WebUIMinVersion      = 1023000 AutoReadOnly
 Int Property WebUIFocusMinVersion = 1022000 AutoReadOnly
-; 1037000 (1.37.0) is the perk module (GetPerkPoints, TryBuyPerk, GetPerkTree*).
+; 1037000 (Nexus 1.6.0) is the perk module (GetPerkPoints, TryBuyPerk, GetPerkTree*).
 ; Below it the card opens without trees and says why.
 Int Property PerkMinVersion       = 1037000 AutoReadOnly
 

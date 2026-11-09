@@ -43,7 +43,7 @@ Function EnsureFixtures() Global
 		Return
 	EndIf
 	_EnsureBoard(hall)
-	_Ensure(hall, 4, "aot_exm_ref_", "AdventurersOfTamriel_Exam.esp", 0x000803)
+	_Ensure(hall, 4, "aot_exm_ref_", "AdventurersOfTamriel.esp", 0x000E2E)
 EndFunction
 
 Function _EnsureBoard(Int aiHall) Global
@@ -53,7 +53,7 @@ Function _EnsureBoard(Int aiHall) Global
 	activator of the hold is removed once. The board goes into the board quest alias.}
 	String plugin = AoT_ContractsCtl.PluginName()
 	If !Game.IsPluginInstalled(plugin)
-		_Ensure(aiHall, 2, "aot_board_ref_", "AdventurersOfTamriel_ExamTalk.esp", 0x000806)
+		_Ensure(aiHall, 2, "aot_board_ref_", "AdventurersOfTamriel.esp", 0x000E35)
 		Return
 	EndIf
 	String path = AoT_Attendant.HallsPath()
@@ -74,7 +74,7 @@ Function _EnsureBoard(Int aiHall) Global
 		base = Game.GetFormFromFile(0x0012CB, "Missives.esp")
 	EndIf
 	If !base
-		base = Game.GetFormFromFile(0x000801, plugin)
+		base = Game.GetFormFromFile(0x000DB8, plugin)
 	EndIf
 	Cell hall = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + aiHall, 0), plug) as Cell
 	String refKey = "aot_cboard_ref_" + hold

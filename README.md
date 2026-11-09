@@ -23,7 +23,7 @@ What the base mod needs, from the scripts it contains:
 - PapyrusUtil SE (the saved state and the tables)
 - powerofthree's Papyrus Extender (the contracts that ask you to clear a place)
 
-The adventurer card and its settings page need, besides the above: Lodestone 1.37.0 or newer, Prisma UI, and SkyUI.
+The adventurer card and its settings page need, besides the above: Lodestone 1.6.0 or newer, Prisma UI, and SkyUI.
 
 The Missives, Headhunter and Monster Hunt Missives adapters are optional, one each, and each needs its own mod.
 
