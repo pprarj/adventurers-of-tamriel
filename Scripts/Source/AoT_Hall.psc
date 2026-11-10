@@ -22,6 +22,29 @@ Function _Ensure(Int aiHall, Int aiSpotIdx, String asKeyBase, String asPlugin, I
 	EndIf
 	ObjectReference spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + aiHall, aiSpotIdx), plug) as ObjectReference
 	Form base = Game.GetFormFromFile(aiBaseId, asPlugin)
+	If base && hall
+		; Fase 13 etapa 6: before placing, adopt a ref of this base already in the hall (one per hall, no duplicate after a reload)
+		Int nAll = hall.GetNumRefs(0)
+		Int q = 0
+		ObjectReference keep = None
+		While q < nAll
+			ObjectReference rr = hall.GetNthRef(q, 0)
+			If rr && rr.GetBaseObject() == base
+				Actor ra = rr as Actor
+				If !keep && (!ra || !ra.IsDead())
+					keep = rr
+				ElseIf rr != keep
+					rr.Disable()
+					rr.Delete()
+				EndIf
+			EndIf
+			q += 1
+		EndWhile
+		If keep
+			StorageUtil.SetFormValue(None, refKey, keep)
+			Return
+		EndIf
+	EndIf
 	If !spot || !base
 		Debug.Trace("[AoT] Hall: spot or base missing for " + refKey)
 		Return

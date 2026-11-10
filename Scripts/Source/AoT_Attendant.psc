@@ -67,14 +67,28 @@ Function EnsureAttendant() Global
     If !hall
         Return
     EndIf
-    Actor cur = StorageUtil.GetFormValue(None, attKey, None) as Actor
-    If cur && !cur.IsDead() && cur.GetParentCell() == hall
-        Return
-    EndIf
     If !Game.IsPluginInstalled("AdventurersOfTamriel.esp")
         Return
     EndIf
     ActorBase base = Game.GetFormFromFile(0x000D99, "AdventurersOfTamriel.esp") as ActorBase
+    Actor cur = StorageUtil.GetFormValue(None, attKey, None) as Actor
+    If !(cur && !cur.IsDead() && cur.GetParentCell() == hall)
+        ; Fase 13 etapa 6: the stored ref can be lost (reload, a second tick); look in the hall itself before placing
+        cur = _AdoptOrTrim(hall, base, cur)
+    EndIf
+    If cur && !cur.IsDead() && cur.GetParentCell() == hall
+        StorageUtil.SetFormValue(None, attKey, cur)
+        If spot && spot.Is3DLoaded() && cur.GetDistance(spot) > 90.0
+            ; the sandbox package let her wander off from behind the counter: bring her back and hold her there
+            cur.MoveTo(spot)
+            cur.SetAngle(0.0, 0.0, spot.GetAngleZ())
+            Debug.Trace("[AoT] Attendant: back to the counter " + cur)
+        EndIf
+        If !cur.IsInDialogueWithPlayer()
+            cur.SetDontMove(True)
+        EndIf
+        Return
+    EndIf
     If !spot || !base
         Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
         Return
@@ -85,11 +99,41 @@ Function EnsureAttendant() Global
     EndIf
     Actor a = spot.PlaceAtMe(base, 1, True) as Actor
     If a
+        a.SetDontMove(True)
         Debug.Trace("[AoT] Attendant: spot at " + spot.GetPositionX() + "," + spot.GetPositionY() + "," + spot.GetPositionZ())
         StorageUtil.SetFormValue(None, attKey, a)
         StorageUtil.SetFormValue(None, "aot_att_ref", a)
         Debug.Trace("[AoT] Attendant placed " + a + " in the hall")
     EndIf
+EndFunction
+
+Actor Function _AdoptOrTrim(Cell akHall, ActorBase akBase, Actor akStored) Global
+    {Fase 13 etapa 6: one attendant per hall. Keeps the stored one if it is a live attendant of this hall, else the
+    first live attendant found in the cell; every other ref of the base in the cell is disabled and deleted.
+    Returns the keeper, or None when the cell has none.}
+    If !akHall || !akBase
+        Return None
+    EndIf
+    Actor keep = None
+    If akStored && !akStored.IsDead() && akStored.GetParentCell() == akHall
+        keep = akStored
+    EndIf
+    Int n = akHall.GetNumRefs(43)
+    Int k = 0
+    While k < n
+        Actor r = akHall.GetNthRef(k, 43) as Actor
+        If r && r.GetBaseObject() == akBase
+            If !keep && !r.IsDead()
+                keep = r
+            ElseIf r != keep
+                Debug.Trace("[AoT] Attendant: duplicate removed " + r)
+                r.Disable()
+                r.Delete()
+            EndIf
+        EndIf
+        k += 1
+    EndWhile
+    Return keep
 EndFunction
 
 Function ProbeReport() Global
