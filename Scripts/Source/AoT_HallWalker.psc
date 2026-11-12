@@ -18,7 +18,7 @@ Package Property LeavePack2 Auto
 Float Property ReturnHour2 = 22.0 Auto
 {Game hour (0-24) at which he comes back from the trip that LeavePack2 starts.}
 Sound Property DoorSound Auto
-{Optional. The door's open sound, played at the marker when he leaves and when he comes back. None = silent.}
+{Optional. The door's open sound, played from the walker when he leaves and when he comes back, only while his 3D is loaded. None = silent.}
 
 Event OnPackageEnd(Package akOldPackage)
 	If akOldPackage == LeavePack
@@ -45,8 +45,9 @@ Function Leave(Float afReturnHour)
 		wait = 0.05
 	EndIf
 	RegisterForSingleUpdateGameTime(wait)
-	If DoorSound != None
-		DoorSound.Play(DoorMarker)
+	; The marker is a static marker (no 3D), so the sound plays from the walker, which is still enabled here.
+	If DoorSound != None && Is3DLoaded()
+		DoorSound.Play(Self)
 	EndIf
 	Disable()
 EndFunction
@@ -61,7 +62,16 @@ Function ComeBack()
 	EndIf
 	MoveTo(DoorMarker)
 	Enable()
-	If DoorSound != None
-		DoorSound.Play(DoorMarker)
+	If DoorSound == None
+		Return
+	EndIf
+	; 3D loads a moment after Enable, and never when the hall is unloaded: wait a short, bounded time, else stay silent.
+	Int tries = 0
+	While !Is3DLoaded() && tries < 5
+		Utility.Wait(0.2)
+		tries += 1
+	EndWhile
+	If Is3DLoaded()
+		DoorSound.Play(Self)
 	EndIf
 EndFunction
