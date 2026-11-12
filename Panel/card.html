@@ -256,6 +256,33 @@
     return out.join(";");
   }
 
+  // D077 (R2-5): the player's name always fits. The line is one row of fixed width: the font shrinks from 38px down
+  // to a legible floor (18px); a name still too long is cut with an ellipsis and the whole name goes in the title.
+  var NAME_MAX = 38;
+  var NAME_FLOOR = 18;
+  var lastName = "Adventurer";
+  function fitName(text) {
+    lastName = text;
+    var e = byId("name");
+    e.textContent = text;
+    e.title = "";
+    e.style.textOverflow = "clip";
+    var size = NAME_MAX;
+    e.style.fontSize = size + "px";
+    while (size > NAME_FLOOR && e.scrollWidth > e.clientWidth) {
+      size -= 1;
+      e.style.fontSize = size + "px";
+    }
+    if (e.scrollWidth > e.clientWidth) {
+      e.style.textOverflow = "ellipsis";
+      e.title = text;
+    }
+  }
+  // the face loads after the first measure: measure again once it is in
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { fitName(lastName); });
+  }
+
   // ------------------------------------------------------------------ header
   function drawHeader() {
     var rank = num(S, "c_rank");
@@ -265,7 +292,7 @@
     if (isNaN(step)) { step = -1; }
     var letter = LETTERS.charAt(rank) || "?";
 
-    setText("name", S["c_name"] ? S["c_name"] : "Adventurer");
+    fitName(S["c_name"] ? String(S["c_name"]) : "Adventurer");
     setText("level", S["c_level"] === undefined ? "-" : num(S, "c_level"));
     setText("joined", S["c_joined"] === undefined ? "Joined -" : "Joined " + dateText(num(S, "c_joined")));
     setText("rankletter", letter);

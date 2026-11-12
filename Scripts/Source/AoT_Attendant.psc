@@ -82,7 +82,7 @@ Function EnsureAttendant() Global
             ; the sandbox package let her wander off from behind the counter: bring her back and hold her there
             cur.MoveTo(spot)
             cur.SetAngle(0.0, 0.0, spot.GetAngleZ())
-            Debug.Trace("[AoT] Attendant: back to the counter " + cur)
+            AoT_Core.Log("[AoT] Attendant: back to the counter " + cur)
         EndIf
         If !cur.IsInDialogueWithPlayer()
             cur.SetDontMove(True)
@@ -94,16 +94,16 @@ Function EnsureAttendant() Global
         Return
     EndIf
     If !spot.Is3DLoaded()
-        Debug.Trace("[AoT] Attendant: spot 3D not loaded yet, retry next tick (" + spot + ")")
+        AoT_Core.Log("[AoT] Attendant: spot 3D not loaded yet, retry next tick (" + spot + ")")
         Return
     EndIf
     Actor a = spot.PlaceAtMe(base, 1, True) as Actor
     If a
         a.SetDontMove(True)
-        Debug.Trace("[AoT] Attendant: spot at " + spot.GetPositionX() + "," + spot.GetPositionY() + "," + spot.GetPositionZ())
+        AoT_Core.Log("[AoT] Attendant: spot at " + spot.GetPositionX() + "," + spot.GetPositionY() + "," + spot.GetPositionZ())
         StorageUtil.SetFormValue(None, attKey, a)
         StorageUtil.SetFormValue(None, "aot_att_ref", a)
-        Debug.Trace("[AoT] Attendant placed " + a + " in the hall")
+        AoT_Core.Log("[AoT] Attendant placed " + a + " in the hall")
     EndIf
 EndFunction
 
@@ -126,7 +126,7 @@ Actor Function _AdoptOrTrim(Cell akHall, ActorBase akBase, Actor akStored) Globa
             If !keep && !r.IsDead()
                 keep = r
             ElseIf r != keep
-                Debug.Trace("[AoT] Attendant: duplicate removed " + r)
+                AoT_Core.Log("[AoT] Attendant: duplicate removed " + r)
                 r.Disable()
                 r.Delete()
             EndIf
@@ -182,7 +182,7 @@ Function PayFee(Int aiBand)
     {Called from the fee fragment. Claims the band first (MarkBandPaid is the claim),
     and only then takes the gold, so a second caller cannot pay the same band twice.}
     If AoT_Core.IsBandPaid(aiBand)
-        Debug.Trace("[AoT] Attendant PayFee: already paid band=" + aiBand)
+        AoT_Core.Log("[AoT] Attendant PayFee: already paid band=" + aiBand)
         Return
     EndIf
     If aiBand < 0 || aiBand > AoT_Core.MaxBand()
@@ -196,22 +196,22 @@ Function PayFee(Int aiBand)
     EndIf
     If cost == 0
         ; A free band (Low, D028) is never charged and never recorded as paid.
-        Debug.Trace("[AoT] Attendant PayFee: band " + aiBand + " is free")
+        AoT_Core.Log("[AoT] Attendant PayFee: band " + aiBand + " is free")
         Return
     EndIf
     Actor player = Game.GetPlayer()
     Int goldBefore = player.GetGoldAmount()
     If goldBefore < cost
-        Debug.Trace("[AoT] Attendant PayFee: insufficient gold " + goldBefore + " < " + cost)
+        AoT_Core.Log("[AoT] Attendant PayFee: insufficient gold " + goldBefore + " < " + cost)
         Return
     EndIf
     If !AoT_Core.MarkBandPaid(aiBand)
-        Debug.Trace("[AoT] Attendant PayFee: band " + aiBand + " was claimed by another caller")
+        AoT_Core.Log("[AoT] Attendant PayFee: band " + aiBand + " was claimed by another caller")
         Return
     EndIf
     player.RemoveItem(Game.GetForm(0x0000000F) as MiscObject, cost)
     Int goldAfter = player.GetGoldAmount()
-    Debug.Trace("[AoT] Attendant PayFee band=" + aiBand + " cost=" + cost + " gold " + goldBefore + " -> " + goldAfter)
+    AoT_Core.Log("[AoT] Attendant PayFee band=" + aiBand + " cost=" + cost + " gold " + goldBefore + " -> " + goldAfter)
 EndFunction
 
 Int Function FeeForBand(Int aiBand) Global
@@ -224,7 +224,8 @@ Int Function FeeForBand(Int aiBand) Global
         Debug.Trace("[AoT] table: aot_fee_by_band missing or short for band " + aiBand)
         Return -1
     EndIf
-    Return JsonUtil.IntListGet(path, "aot_fee_by_band", aiBand)
+    ; D077: the settings page scales every fee (0 = no fee at all, a free band is never charged)
+    Return AoT_Core.ScaleByOption(JsonUtil.IntListGet(path, "aot_fee_by_band", aiBand), AoT_Core.FeeMultiplier())
 EndFunction
 
 Bool Function ShouldShowFee(Int aiBand) Global
@@ -258,7 +259,7 @@ Bool Function TryAbandonById(Int aiId)
         EndIf
     EndIf
     Bool ok = AoT_Core.AbandonContract(aiId)
-    Debug.Trace("[AoT] Attendant Abandon id=" + aiId + " ok=" + ok)
+    AoT_Core.Log("[AoT] Attendant Abandon id=" + aiId + " ok=" + ok)
     Return ok
 EndFunction
 
@@ -340,6 +341,23 @@ Int Function _GlobalId(String asName) Global
         Return 0x000E2F
     ElseIf asName == "promote"
         Return 0x000E30
+    ; Fase 14 etapa 1 (D077): the globals of the conversation tree, all in AdventurersOfTamriel.esp
+    ElseIf asName == "ismember"
+        Return 0x000F21
+    ElseIf asName == "canunlock"
+        Return 0x000F22
+    ElseIf asName == "hasdone"
+        Return 0x000F23
+    ElseIf asName == "opencount"
+        Return 0x000F24
+    ElseIf asName == "exammarked"
+        Return 0x000F25
+    ElseIf asName == "canexam"
+        Return 0x000F26
+    ElseIf asName == "canmarkexam"
+        Return 0x000F27
+    ElseIf asName == "abandonpick"
+        Return 0x000F28
     EndIf
     Return 0x000DA4
 EndFunction
@@ -378,15 +396,30 @@ Function SyncGlobals() Global
     {Fee global = the fee when the band is payable and unpaid, else 0 (the topic is
     hidden by "fee > 0 and gold >= fee"). Delivery globals read the quests the board
     recorded under aot_head_q / aot_mmh_q, at stage 40.}
+    Int member = 0
+    If AoT_Core.IsMember()
+        member = 1
+    EndIf
+    _SetGlobal("ismember", member)
+    ; D077: a fee is offered only for a band the current rank can draw (weight above 0), unpaid, with a price
+    Int anyFee = 0
+    Int rank = AoT_Core.GetRank()
     Int b = 1
     While b <= AoT_Core.MaxBand()
         Int c = FeeForBand(b)
-        If c < 0 || AoT_Core.IsBandPaid(b)
+        If c < 0 || AoT_Core.IsBandPaid(b) || AoT_Core.BandWeight(rank, b) <= 0
             c = 0
+        EndIf
+        If c > 0
+            anyFee = 1
         EndIf
         _SetGlobal("fee" + b, c)
         b += 1
     EndWhile
+    If member == 0
+        anyFee = 0
+    EndIf
+    _SetGlobal("canunlock", anyFee)
     ; E5: the adapters find the foreign hunt quest at stage 40 and the attendant records it; with the
     ; third-party mod absent both stay None, the two topics stay hidden (D-35, a control).
     StorageUtil.SetFormValue(None, "aot_head_q", AoT_HeadhunterAdapter.FindReadyQuest())
@@ -408,25 +441,139 @@ Function SyncGlobals() Global
         o = 1
     EndIf
     _SetGlobal("open", o)
+    ; D077: open contracts, at most 4 (the abandon list has four lines), counted from the ledger
+    Int oc = 0
+    Int ln = AoT_Core.ContractCount()
+    Int li = 1
+    While li <= ln && oc < 4
+        If AoT_Core.ContractState(li) == 1
+            oc += 1
+        EndIf
+        li += 1
+    EndWhile
+    If member == 0
+        oc = 0
+    EndIf
+    _SetGlobal("opencount", oc)
+    ; the report topic waits for the board of Fase 14 etapa 2 (nothing in the ledger says "finished, not yet delivered")
+    _SetGlobal("hasdone", 0)
+    _SetGlobal("abandonpick", StorageUtil.GetIntValue(None, "aot_abandon_pick", 0))
     ; the ladder cut (Fase 8): the exam topic shows when the points enable a promotion that asks for the
     ; room exam and none is running; the plain promotion shows when the cut asks for no exam.
+    Int exState = AoT_Exam.ExamState()
+    Int eligibleExam = 0
     Int ex = 0
     Int pr = 0
-    If AoT_Core.IsPromotionEligible() && AoT_Exam.ExamState() == 0
+    If AoT_Core.IsPromotionEligible() && exState == 0
         Int kind = AoT_Core.ExamKind(AoT_Core.GetRank())
         If kind == 1
             ex = 1
+            eligibleExam = 1
         ElseIf kind == 0
             pr = 1
         EndIf
     EndIf
+    If member == 0
+        ex = 0
+        pr = 0
+        eligibleExam = 0
+    EndIf
     _SetGlobal("exam", ex)
     _SetGlobal("promote", pr)
+    ; D077: the exam is marked at the attendant and taken with the examiner. The mark stays while the exam runs,
+    ; and is cleared when the exam ended or the points no longer enable it.
+    Int marked = StorageUtil.GetIntValue(None, "aot_exam_marked", 0)
+    If marked == 1
+        If exState != 0
+            StorageUtil.SetIntValue(None, "aot_exam_ran", 1)
+        ElseIf StorageUtil.GetIntValue(None, "aot_exam_ran", 0) == 1 || eligibleExam == 0
+            StorageUtil.SetIntValue(None, "aot_exam_marked", 0)
+            StorageUtil.SetIntValue(None, "aot_exam_ran", 0)
+            marked = 0
+        EndIf
+    EndIf
+    Int canMark = 0
+    If eligibleExam == 1 && marked == 0
+        canMark = 1
+    EndIf
+    Int canExam = 0
+    If eligibleExam == 1 && marked == 1
+        canExam = 1
+    EndIf
+    _SetGlobal("exammarked", marked)
+    _SetGlobal("canmarkexam", canMark)
+    _SetGlobal("canexam", canExam)
+EndFunction
+
+String Function ContractName(Int aiId) Global
+    {Display name of the contract with this ledger id, for the abandon list: the name of its quest, else "Contract <id>".}
+    Quest own = StorageUtil.GetFormValue(None, "aot_own_q" + aiId, None) as Quest
+    If !own
+        Quest q2b = Game.GetFormFromFile(0x000D97, "AdventurersOfTamriel.esp") as Quest
+        If q2b && AoT_Core.FindOpenContract(q2b) == aiId
+            own = q2b
+        EndIf
+    EndIf
+    If own
+        String nm = own.GetName()
+        If nm != ""
+            Return nm
+        EndIf
+    EndIf
+    Return "Contract " + aiId
+EndFunction
+
+Function FillSlots() Global
+    {D077: the abandon list. The up to four oldest open contracts take slots 1 to 4 (ledger id kept in aot_slot_id_K);
+    the name of each is put on a marker reference of its own and that reference fills the matching alias of
+    AoT_AttendantTalk (AoT_SlotK), whose text the topic prompt shows ("<Alias=AoT_SlotK>"). INFERRED, not
+    measured: that a display name on a marker reaches the alias text of a prompt (D077, to be confirmed in game).}
+    Quest tq = Game.GetFormFromFile(0x000DA5, "AdventurersOfTamriel.esp") as Quest
+    Int n = AoT_Core.ContractCount()
+    Int slot = 1
+    Int i = 1
+    While i <= n && slot <= 4
+        If AoT_Core.ContractState(i) == 1
+            StorageUtil.SetIntValue(None, "aot_slot_id_" + slot, i)
+            If tq
+                _PutSlotName(tq, slot, ContractName(i))
+            EndIf
+            slot += 1
+        EndIf
+        i += 1
+    EndWhile
+    While slot <= 4
+        StorageUtil.SetIntValue(None, "aot_slot_id_" + slot, 0)
+        slot += 1
+    EndWhile
+EndFunction
+
+Function _PutSlotName(Quest akTalk, Int aiSlot, String asName) Global
+    ReferenceAlias al = akTalk.GetAliasById(aiSlot - 1) as ReferenceAlias
+    If !al
+        AoT_Core.Log("[AoT] Attendant: alias slot " + aiSlot + " missing on the talk quest")
+        Return
+    EndIf
+    String slotKey = "aot_slot_ref_" + aiSlot
+    ObjectReference r = StorageUtil.GetFormValue(None, slotKey, None) as ObjectReference
+    If !r
+        Form marker = Game.GetForm(0x0000003B)
+        r = Game.GetPlayer().PlaceAtMe(marker, 1, True)
+        If !r
+            AoT_Core.Log("[AoT] Attendant: no marker for slot " + aiSlot)
+            Return
+        EndIf
+        StorageUtil.SetFormValue(None, slotKey, r)
+    EndIf
+    r.SetDisplayName(asName, True)
+    al.ForceRefTo(r)
 EndFunction
 
 Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
+    Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (not wired), 10 and 11 fill the
+    abandon list, 12 abandon the picked slot, 13 refuse, 21 to 24 pick slot 1 to 4.
     Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
     AoT_Attendant a = q as AoT_Attendant
@@ -434,7 +581,7 @@ Function RunAction(Int aiAction, Int aiBand) Global
         If a && ShouldShowFee(aiBand)
             a.PayFee(aiBand)
         Else
-            Debug.Trace("[AoT] Attendant RunAction: fee not payable band=" + aiBand)
+            AoT_Core.Log("[AoT] Attendant RunAction: fee not payable band=" + aiBand)
         EndIf
     ElseIf aiAction == 2
         Int id = FirstOpenContractId()
@@ -461,12 +608,51 @@ Function RunAction(Int aiAction, Int aiBand) Global
         EndIf
     ElseIf aiAction == 5
         Bool started = AoT_Exam.StartExam()
-        Debug.Trace("[AoT] Attendant RunAction: exam started=" + started)
+        AoT_Core.Log("[AoT] Attendant RunAction: exam started=" + started)
     ElseIf aiAction == 6
         Int rb = AoT_Core.GetRank()
         Int pb = AoT_Core.GetPoints()
         Bool pro = AoT_Core.PromoteWithoutExam()
-        Debug.Trace("[AoT] Attendant promote=" + pro + " rank " + rb + " -> " + AoT_Core.GetRank() + " points " + pb + " -> " + AoT_Core.GetPoints())
+        AoT_Core.Log("[AoT] Attendant promote=" + pro + " rank " + rb + " -> " + AoT_Core.GetRank() + " points " + pb + " -> " + AoT_Core.GetPoints())
+    ElseIf aiAction == 7
+        ; D077: "I want to join the guild." - member at rank F
+        Bool joined = AoT_Core.JoinGuild()
+        AoT_Core.Log("[AoT] Attendant: join=" + joined)
+    ElseIf aiAction == 8
+        ; the examiner is told the exam is marked; only while the points enable it (SyncGlobals clears a stale mark)
+        SyncGlobals()
+        If Game.GetFormFromFile(0x000F27, "AdventurersOfTamriel.esp") as GlobalVariable
+            If (Game.GetFormFromFile(0x000F27, "AdventurersOfTamriel.esp") as GlobalVariable).GetValue() > 0.5
+                StorageUtil.SetIntValue(None, "aot_exam_marked", 1)
+                StorageUtil.SetIntValue(None, "aot_exam_ran", 0)
+            EndIf
+        EndIf
+    ElseIf aiAction == 9
+        ; the delivery topic waits for the board of Fase 14 etapa 2: its condition (AoT_HasDone) is 0 until then
+        AoT_Core.Log("[AoT] Attendant: report topic is not wired yet")
+    ElseIf aiAction == 10 || aiAction == 11
+        ; open the abandon list / greet: the slot names are filled before the topic menu is built
+        StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
+        FillSlots()
+    ElseIf aiAction == 12
+        ; "Yes, abandon it.": the ledger id kept for the picked slot, abandoned only while still open
+        Int pick = StorageUtil.GetIntValue(None, "aot_abandon_pick", 0)
+        Int aid = 0
+        If pick >= 1 && pick <= 4
+            aid = StorageUtil.GetIntValue(None, "aot_slot_id_" + pick, 0)
+        EndIf
+        If aid > 0 && a && AoT_Core.ContractState(aid) == 1
+            Bool gone = a.TryAbandonById(aid)
+            AoT_Core.Log("[AoT] Attendant: abandon slot " + pick + " id " + aid + " ok=" + gone)
+        Else
+            AoT_Core.Log("[AoT] Attendant: abandon pick " + pick + " is not an open contract")
+        EndIf
+        StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
+    ElseIf aiAction == 13
+        StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
+    ElseIf aiAction >= 21 && aiAction <= 24
+        ; a line of the abandon list was picked: remember which slot until the player confirms or refuses
+        StorageUtil.SetIntValue(None, "aot_abandon_pick", aiAction - 20)
     EndIf
     SyncGlobals()
 EndFunction

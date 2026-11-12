@@ -53,7 +53,8 @@ Int Function GetAdventurerRank(Actor akActor) Global
 		Return -1
 	EndIf
 	If akActor == Game.GetPlayer()
-		If StorageUtil.HasIntValue(None, "aot_joined_day")
+		; D077: the player is a member once the attendant has enrolled them (or an older save already used the guild)
+		If IsMember()
 			Return GetRank()
 		EndIf
 		Return -1
@@ -67,6 +68,34 @@ Int Function GetAdventurerRank(Actor akActor) Global
 		Return -1
 	EndIf
 	Return r
+EndFunction
+
+Bool Function IsMember() Global
+	{D077: true when the player is a guild member. A new character becomes one at the attendant ("aot_member" = 1,
+	JoinGuild). A save made before that topic existed counts as a member when it already used the guild: any
+	points, any rank above F, or any contract ever opened. The join day alone does not count: reading the card
+	stamps it (JoinedDay), so it proves nothing about joining.}
+	If StorageUtil.GetIntValue(None, "aot_member", 0) == 1
+		Return True
+	EndIf
+	If StorageUtil.GetIntValue(None, "aot_points", 0) > 0 || StorageUtil.GetIntValue(None, "aot_rank", 0) > 0
+		Return True
+	EndIf
+	Return ContractCount() > 0
+EndFunction
+
+Bool Function JoinGuild() Global
+	{D077: enrols the player at rank F. True when this call enrolled them; false when they already were a member
+	or the save cannot be written. Stamps the join day; points and rank stay as they are (0 and F for a new character).}
+	If IsMember()
+		Return False
+	EndIf
+	If !_CanWrite()
+		Return False
+	EndIf
+	StorageUtil.SetIntValue(None, "aot_member", 1)
+	JoinedDay()
+	Return True
 EndFunction
 
 Int Function GetPoints() Global
@@ -229,7 +258,88 @@ Int Function PointsForBand(Int aiBand) Global
 		Debug.Trace("[AoT] table: aot_points_by_band missing or short")
 		Return -1
 	EndIf
-	Return JsonUtil.IntListGet(TablePath(), "aot_points_by_band", aiBand)
+	Int base = JsonUtil.IntListGet(TablePath(), "aot_points_by_band", aiBand)
+	Return ScaleByOption(base, PointsMultiplier())
+EndFunction
+
+; ---------------------------------------------------------------------------
+; Options (D077): the six values of the settings page. They live in the save (StorageUtil, no key
+; object), are read at the moment of use and never copied into a property. Missing key = the default.
+; ---------------------------------------------------------------------------
+
+Int Function CardKey() Global
+	{DirectInput scancode of the card key; 65 (F7) by default.}
+	Int k = StorageUtil.GetIntValue(None, "aot_opt_card_key", 65)
+	If k < 1 || k > 255
+		Return 65
+	EndIf
+	Return k
+EndFunction
+
+Float Function FeeMultiplier() Global
+	{Multiplier on the fee of every band, 0 to 3; 1.0 by default. 0 = no fee at all.}
+	Float m = StorageUtil.GetFloatValue(None, "aot_opt_fee_mult", 1.0)
+	If m < 0.0
+		Return 0.0
+	ElseIf m > 3.0
+		Return 3.0
+	EndIf
+	Return m
+EndFunction
+
+Float Function PointsMultiplier() Global
+	{Multiplier on the points of a completed contract, 0.25 to 3; 1.0 by default.}
+	Float m = StorageUtil.GetFloatValue(None, "aot_opt_points_mult", 1.0)
+	If m < 0.25
+		Return 0.25
+	ElseIf m > 3.0
+		Return 3.0
+	EndIf
+	Return m
+EndFunction
+
+Int Function BoardOffers() Global
+	{Contracts the board offers per refresh, 3 to 15; 5 by default. The key aot_board_offers of the save wins over
+	the one of contracts.json (D077: the settings page writes it).}
+	Int n = StorageUtil.GetIntValue(None, "aot_board_offers", 0)
+	If n <= 0
+		n = JsonUtil.GetIntValue("../../../Config/AdventurersOfTamriel/contracts", "aot_board_offers", 5)
+	EndIf
+	If n < 3
+		Return 3
+	ElseIf n > 15
+		Return 15
+	EndIf
+	Return n
+EndFunction
+
+Bool Function SuppressVanillaBounties() Global
+	{D-32 switch, on by default. Stored by the settings page; the board acts on it in Fase 14 etapa 2.}
+	Return StorageUtil.GetIntValue(None, "aot_opt_d32", 1) != 0
+EndFunction
+
+Bool Function DebugLogOn() Global
+	{Off by default: the guild's informational lines go to the Papyrus log only when this is on.}
+	Return StorageUtil.GetIntValue(None, "aot_opt_debug", 0) != 0
+EndFunction
+
+Function Log(String asText) Global
+	{Informational line of the guild: written only when the debug option is on. Errors keep Debug.Trace.}
+	If DebugLogOn()
+		Debug.Trace(asText)
+	EndIf
+EndFunction
+
+Int Function ScaleByOption(Int aiValue, Float afMult) Global
+	{aiValue * afMult rounded to the nearest whole; a positive value never rounds down to 0 unless the multiplier is 0.}
+	If aiValue <= 0 || afMult <= 0.0
+		Return 0
+	EndIf
+	Int r = Math.Floor(aiValue * afMult + 0.5) as Int
+	If r < 1
+		r = 1
+	EndIf
+	Return r
 EndFunction
 
 Int Function BandWeight(Int aiRank, Int aiBand) Global

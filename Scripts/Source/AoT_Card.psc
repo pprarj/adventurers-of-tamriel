@@ -31,8 +31,9 @@ Int Property WebUIFocusMinVersion = 1022000 AutoReadOnly
 ; Below it the card opens without trees and says why.
 Int Property PerkMinVersion       = 1037000 AutoReadOnly
 
-; DirectX scan code of the hotkey: 65 is F7.
-Int Property HotkeyCode = 65 AutoReadOnly
+; DirectX scan code of the hotkey: the settings page writes it (D077), AoT_Core.CardKey() reads it at the
+; moment of use; 65 (F7) is the default. _regKey is the key registered now, 0 in a save made before the option.
+Int _regKey = 0
 ; DirectX scan code of Esc. Registered ONLY while the card is open or opening (D021):
 ; with the card closed Esc belongs to the game and this mod does not listen.
 Int Property EscCode = 1 AutoReadOnly
@@ -61,8 +62,23 @@ Int _skillCount = 0
 Int _lastHighest = -1
 
 Event OnInit()
-	RegisterForKey(HotkeyCode)
+	ApplyKey()
 EndEvent
+
+Function ApplyKey()
+	{Registers the card key of the settings page; drops the previous registration when it changed. A save made
+	before the option has _regKey = 0 and a registration of 65: that one is dropped too.}
+	Int want = AoT_Core.CardKey()
+	If _regKey == 0
+		If want != 65
+			UnregisterForKey(65)
+		EndIf
+	ElseIf _regKey != want
+		UnregisterForKey(_regKey)
+	EndIf
+	_regKey = want
+	RegisterForKey(want)
+EndFunction
 
 Event OnKeyDown(Int aiKeyCode)
 	If aiKeyCode == EscCode
@@ -74,7 +90,7 @@ Event OnKeyDown(Int aiKeyCode)
 		EndIf
 		Return
 	EndIf
-	If aiKeyCode != HotkeyCode
+	If aiKeyCode != AoT_Core.CardKey()
 		Return
 	EndIf
 	; Closing our own panel is never a game action: it comes BEFORE the menu
@@ -84,6 +100,11 @@ Event OnKeyDown(Int aiKeyCode)
 		Return
 	EndIf
 	If Utility.IsInMenuMode() || UI.IsTextInputEnabled()
+		Return
+	EndIf
+	; D077: the card belongs to the guild's members; the attendant enrols a new character
+	If !AoT_Core.IsMember()
+		Debug.Notification("You are not a member of the Adventurers Guild.")
 		Return
 	EndIf
 	OpenCard()
@@ -171,7 +192,7 @@ Function OpenNow()
 EndFunction
 
 Function Push()
-	Debug.Trace("[AoT] Card: push rank=" + RankLetter(AoT_Core.GetRank()) + " points=" + AoT_Core.GetPoints())
+	AoT_Core.Log("[AoT] Card: push rank=" + RankLetter(AoT_Core.GetRank()) + " points=" + AoT_Core.GetPoints())
 	Lodestone.WebUICall(ViewId, FnCard, BuildPayload())
 EndFunction
 
@@ -199,8 +220,8 @@ Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 			Return
 		EndIf
 		_awaitingHello = False
-		Debug.Trace("[AoT] Card: page said " + act)
-		Debug.Trace("[AoT] Card: asking focus; menuMode=" + Utility.IsInMenuMode())
+		AoT_Core.Log("[AoT] Card: page said " + act)
+		AoT_Core.Log("[AoT] Card: asking focus; menuMode=" + Utility.IsInMenuMode())
 		If !Lodestone.WebUIFocusView(ViewId)
 			; Refusal is a normal case: one view at a time in the whole load order.
 			Debug.Trace("[AoT] Card: WebUIFocusView refused")
@@ -221,7 +242,7 @@ Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 EndEvent
 
 Event OnCardLog(String asEvent, String asText, Float afNum, Form akSender)
-	Debug.Trace("[AoT] Card page: " + Unwrap(asText))
+	AoT_Core.Log("[AoT] Card page: " + Unwrap(asText))
 EndEvent
 
 ; The page's argument may come wrapped in one pair of double quotes.
@@ -270,7 +291,7 @@ Event OnUpdate()
 		Return
 	EndIf
 	; Lost the focus (panic key, load, a pausing menu). Do not ask it back.
-	Debug.Trace("[AoT] Card: focus lost, closing the panel")
+	AoT_Core.Log("[AoT] Card: focus lost, closing the panel")
 	ClosePanel("watchdog")
 EndEvent
 
@@ -290,12 +311,12 @@ Function ClosePanel(String asVia)
 	UnregisterForKey(EscCode)
 	If !_visible
 		If hadPanel
-			Debug.Trace("[AoT] Card: closed by " + asVia)
+			AoT_Core.Log("[AoT] Card: closed by " + asVia)
 		EndIf
 		Return
 	EndIf
 	HideQuiet()
-	Debug.Trace("[AoT] Card: closed by " + asVia)
+	AoT_Core.Log("[AoT] Card: closed by " + asVia)
 EndFunction
 
 Int Function BrowserKeyCode(Int aiScanCode)
@@ -347,7 +368,7 @@ String Function BuildPayload()
 
 	String eol = StringUtil.AsChar(10)
 	String text = "c_name|" + Game.GetPlayer().GetDisplayName() + eol
-	text += "hotkey|" + BrowserKeyCode(HotkeyCode) + eol
+	text += "hotkey|" + BrowserKeyCode(AoT_Core.CardKey()) + eol
 	text += "c_level|" + Game.GetPlayer().GetLevel() + eol
 	text += "c_joined|" + AoT_Core.JoinedDay() + eol
 	If PerkOk()
@@ -568,7 +589,7 @@ String Function BuildTree(Int aiSlot)
 	text += k + "s|" + ss + eol
 	text += k + "names|" + nm + eol
 	text += k + "e|" + es + eol
-	Debug.Trace("[AoT] Card: tree " + skill + " nodes=" + n + " edges=" + (edges.Length / 2) + " points=" + pp + " read in " + (Utility.GetCurrentRealTime() - t0) + " s")
+	AoT_Core.Log("[AoT] Card: tree " + skill + " nodes=" + n + " edges=" + (edges.Length / 2) + " points=" + pp + " read in " + (Utility.GetCurrentRealTime() - t0) + " s")
 	Return text
 EndFunction
 
@@ -600,7 +621,7 @@ Function BuyPerk(Int aiSlot, Int aiIndex)
 	If target != None
 		owned = Lodestone.HasPerk(target)
 	EndIf
-	Debug.Trace("[AoT] Card: buy skill=" + skill + " node=" + aiIndex + " perk=" + target + " bought=" + bought + " points " + before + " -> " + after + " owned=" + owned)
+	AoT_Core.Log("[AoT] Card: buy skill=" + skill + " node=" + aiIndex + " perk=" + target + " bought=" + bought + " points " + before + " -> " + after + " owned=" + owned)
 	If _visible
 		Lodestone.WebUICall(ViewId, FnCard, BuildTree(aiSlot))
 	EndIf

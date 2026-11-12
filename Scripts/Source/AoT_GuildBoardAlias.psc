@@ -432,7 +432,7 @@ EndFunction
 
 Function OfferContracts(ObjectReference akBoard, Int aiHall)
 	Int rank = AoT_Core.GetRank()
-	Int offers = JsonUtil.GetIntValue(AoT_ContractsCtl.ContractsPath(), "aot_board_offers", 5)
+	Int offers = AoT_Core.BoardOffers()
 	Int started = 0
 	Int attempts = 0
 	Int aboveOne = 0

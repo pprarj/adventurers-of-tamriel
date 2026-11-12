@@ -14,8 +14,24 @@ Event OnConfigInit()
 	ModName = "Adventurers of Tamriel"
 EndEvent
 
+; D077 (Fase 14 etapa 1): the six options of the guild. Values live in the save (AoT_Core reads them at the moment
+; of use, nothing is copied here); defaults: card key F7, fee x1.0, points x1.0, 5 offers, D-32 on, debug log off.
+Int _optKey = 0
+Int _optFee = 0
+Int _optPts = 0
+Int _optOffers = 0
+Int _optD32 = 0
+Int _optDebug = 0
+
 Event OnPageReset(String asPage)
 	SetCursorFillMode(TOP_TO_BOTTOM)
+	AddHeaderOption("Guild")
+	_optKey = AddKeyMapOption("Card key", AoT_Core.CardKey())
+	_optFee = AddSliderOption("Fee multiplier", AoT_Core.FeeMultiplier(), "x{2}")
+	_optPts = AddSliderOption("Points multiplier", AoT_Core.PointsMultiplier(), "x{2}")
+	_optOffers = AddSliderOption("Contracts offered by the board", AoT_Core.BoardOffers() as Float, "{0}")
+	_optD32 = AddToggleOption("Suppress vanilla inn and steward bounties", AoT_Core.SuppressVanillaBounties())
+	_optDebug = AddToggleOption("Debug log", AoT_Core.DebugLogOn())
 	If Lodestone.GetVersion() < 1037000
 		AddHeaderOption("Perk trees")
 		AddTextOption("Needs Lodestone 1.6.0 or newer", "", OPTION_FLAG_DISABLED)
@@ -71,6 +87,79 @@ Int Function SlotOf(Int aiOption)
 	Return -1
 EndFunction
 
+Event OnOptionKeyMapChange(Int aiOption, Int aiKeyCode, String asConflictControl, String asConflictName)
+	If aiOption != _optKey
+		Return
+	EndIf
+	If aiKeyCode < 1 || aiKeyCode > 255
+		Return
+	EndIf
+	If asConflictControl != ""
+		If !ShowMessage("That key is already used by " + asConflictControl + ". Use it anyway?", True)
+			Return
+		EndIf
+	EndIf
+	StorageUtil.SetIntValue(None, "aot_opt_card_key", aiKeyCode)
+	SetKeyMapOptionValue(aiOption, aiKeyCode)
+	AoT_Card card = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Card.esp") as AoT_Card
+	If card
+		card.ApplyKey()
+	EndIf
+EndEvent
+
+Event OnOptionSliderOpen(Int aiOption)
+	If aiOption == _optFee
+		SetSliderDialogStartValue(AoT_Core.FeeMultiplier())
+		SetSliderDialogDefaultValue(1.0)
+		SetSliderDialogRange(0.0, 3.0)
+		SetSliderDialogInterval(0.25)
+	ElseIf aiOption == _optPts
+		SetSliderDialogStartValue(AoT_Core.PointsMultiplier())
+		SetSliderDialogDefaultValue(1.0)
+		SetSliderDialogRange(0.25, 3.0)
+		SetSliderDialogInterval(0.25)
+	ElseIf aiOption == _optOffers
+		SetSliderDialogStartValue(AoT_Core.BoardOffers() as Float)
+		SetSliderDialogDefaultValue(5.0)
+		SetSliderDialogRange(3.0, 15.0)
+		SetSliderDialogInterval(1.0)
+	EndIf
+EndEvent
+
+Event OnOptionSliderAccept(Int aiOption, Float afValue)
+	If aiOption == _optFee
+		StorageUtil.SetFloatValue(None, "aot_opt_fee_mult", afValue)
+		SetSliderOptionValue(aiOption, afValue, "x{2}")
+		AoT_Attendant.SyncGlobals()
+	ElseIf aiOption == _optPts
+		StorageUtil.SetFloatValue(None, "aot_opt_points_mult", afValue)
+		SetSliderOptionValue(aiOption, afValue, "x{2}")
+	ElseIf aiOption == _optOffers
+		StorageUtil.SetIntValue(None, "aot_board_offers", afValue as Int)
+		SetSliderOptionValue(aiOption, afValue, "{0}")
+	EndIf
+EndEvent
+
+Event OnOptionSelect(Int aiOption)
+	If aiOption == _optD32
+		Bool on = !AoT_Core.SuppressVanillaBounties()
+		If on
+			StorageUtil.SetIntValue(None, "aot_opt_d32", 1)
+		Else
+			StorageUtil.SetIntValue(None, "aot_opt_d32", 0)
+		EndIf
+		SetToggleOptionValue(aiOption, on)
+	ElseIf aiOption == _optDebug
+		Bool dbg = !AoT_Core.DebugLogOn()
+		If dbg
+			StorageUtil.SetIntValue(None, "aot_opt_debug", 1)
+		Else
+			StorageUtil.SetIntValue(None, "aot_opt_debug", 0)
+		EndIf
+		SetToggleOptionValue(aiOption, dbg)
+	EndIf
+EndEvent
+
 Event OnOptionMenuOpen(Int aiOption)
 	Int slot = SlotOf(aiOption)
 	If slot < 0
@@ -109,6 +198,23 @@ Event OnOptionMenuAccept(Int aiOption, Int aiIndex)
 EndEvent
 
 Event OnOptionDefault(Int aiOption)
+	If aiOption == _optKey
+		StorageUtil.SetIntValue(None, "aot_opt_card_key", 65)
+		SetKeyMapOptionValue(aiOption, 65)
+		AoT_Card card = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Card.esp") as AoT_Card
+		If card
+			card.ApplyKey()
+		EndIf
+		Return
+	ElseIf aiOption == _optD32
+		StorageUtil.SetIntValue(None, "aot_opt_d32", 1)
+		SetToggleOptionValue(aiOption, True)
+		Return
+	ElseIf aiOption == _optDebug
+		StorageUtil.SetIntValue(None, "aot_opt_debug", 0)
+		SetToggleOptionValue(aiOption, False)
+		Return
+	EndIf
 	Int slot = SlotOf(aiOption)
 	If slot < 0
 		Return
@@ -118,6 +224,19 @@ Event OnOptionDefault(Int aiOption)
 EndEvent
 
 Event OnOptionHighlight(Int aiOption)
+	If aiOption == _optKey
+		SetInfoText("The key that opens the adventurer card. Default F7. The card opens only for guild members.")
+	ElseIf aiOption == _optFee
+		SetInfoText("Multiplies the fee paid at the attendant to unlock a band of contracts. 0 means no fee at all. Default 1.0.")
+	ElseIf aiOption == _optPts
+		SetInfoText("Multiplies the points a finished contract gives. Default 1.0.")
+	ElseIf aiOption == _optOffers
+		SetInfoText("How many contracts the board offers at each refresh, 3 to 15. Default 5.")
+	ElseIf aiOption == _optD32
+		SetInfoText("Hides the vanilla bounty and steward quests the guild replaces. Default on. The board acts on it in a later update.")
+	ElseIf aiOption == _optDebug
+		SetInfoText("Writes the guild's informational lines to the Papyrus log. Errors are always written. Default off.")
+	EndIf
 	If SlotOf(aiOption) >= 0
 		SetInfoText("The skill whose perk tree this column of the card shows. With every column on (none), the card shows the five skills of highest level.")
 	EndIf
