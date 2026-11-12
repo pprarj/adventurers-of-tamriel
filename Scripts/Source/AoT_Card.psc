@@ -105,7 +105,11 @@ Event OnKeyDown(Int aiKeyCode)
 		ClosePanel("key")
 		Return
 	EndIf
-	If Utility.IsInMenuMode() || UI.IsTextInputEnabled()
+	; Always on: a silent Return here would leave a card that never opens with no trace at all.
+	Bool inMenu = Utility.IsInMenuMode()
+	Bool inText = UI.IsTextInputEnabled()
+	If inMenu || inText
+		Debug.Trace("[AoT] Card: OnKeyDown ignored, menuMode=" + inMenu + " textInput=" + inText)
 		Return
 	EndIf
 	; D077: the card belongs to the guild's members; the attendant enrols a new character
@@ -133,6 +137,7 @@ Bool Function CanUsePanel()
 EndFunction
 
 Function OpenCard()
+	Debug.Trace("[AoT] Card: OpenCard pending=" + _pending + " ready=" + Lodestone.WebUIIsViewReady(ViewId))
 	; An orphan from before a load: the view outlives the load, the flags do not.
 	If !_visible && Lodestone.WebUIIsViewReady(ViewId) && Lodestone.WebUIIsViewVisible(ViewId)
 		Lodestone.WebUIClearFocus(ViewId)
@@ -153,6 +158,7 @@ Function OpenCard()
 		Return
 	EndIf
 	If _pending
+		Debug.Trace("[AoT] Card: OpenCard ignored, an opening is already pending")
 		Return
 	EndIf
 
@@ -169,6 +175,7 @@ Function OpenCard()
 		Debug.Trace("[AoT] Card: WebUICreateView refused " + ViewPath)
 		ShowPlain()
 	EndIf
+	Debug.Trace("[AoT] Card: WebUICreateView accepted " + ViewPath)
 EndFunction
 
 Event OnCardReady(String asEvent, String asViewId, Float afNum, Form akSender)
