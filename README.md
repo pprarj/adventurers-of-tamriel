@@ -22,8 +22,12 @@ What the base mod needs, from the scripts it contains:
 - SKSE
 - PapyrusUtil SE (the saved state and the tables)
 - powerofthree's Papyrus Extender (the contracts that ask you to clear a place)
+- Lodestone 1.6.0 or newer (the adventurer card and the perk purchase go through it)
+- Prisma UI (the card's panel; Magelight UI is the secondary backend)
+- SkyUI (the settings page)
 
-The adventurer card and its settings page need, besides the above: Lodestone 1.6.0 or newer, Prisma UI, and SkyUI.
+The adventurer card and its settings page are part of the base mod, not an option: the main plugin carries the two quests
+that start them, so a game without Lodestone, a panel framework and SkyUI loses the card and the settings page.
 
 The Missives, Headhunter and Monster Hunt Missives adapters are optional, one each, and each needs its own mod.
 

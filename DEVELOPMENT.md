@@ -224,7 +224,7 @@ A one-screen web panel with the player's own record (rank, level, joined date, p
 - A buy is `AoTCardAction("buy|column|node")`. Papyrus re-reads the tree of that column, works out the perk, calls `TryBuyPerk`, logs `[AoT] Card: buy ... points before -> after, owned` and pushes the column again.
 - Which trees: the skills chosen in the MCM page (`AoT_MCM`, five menus, each listing the skills whose tree is loaded plus "(none)"; the same skill is refused twice). With every menu on "(none)" the card shows the five skills of highest level. The choice lives in the save, never in a script.
 - The page is `Panel/card.html` plus `Panel/fonts/` (Cinzel 500 and 700 as `.woff2`, `OFL.txt` with the license; no request leaves the page). The whole folder is packed for `PrismaUI/views/AdventurersOfTamriel/` (the backend the card is tested on), `Magelight/AdventurersOfTamriel/` and `MeridianUI/AdventurersOfTamriel/` (same page; Meridian UI is discontinued and no longer tested or packaged). ES5 only, so the same file runs on all of them.
-- Plugin `AdventurersOfTamriel_Card.esp` carries two Start Game Enabled quests: `AoT_CardQuest` (script `AoT_Card`) and `AoT_MCMQuest` (script `AoT_MCM`, a SkyUI `SKI_ConfigBase`). Not installed means no card and no settings page; the core `.esl` is not touched.
+- The main plugin `AdventurersOfTamriel.esp` carries two Start Game Enabled quests: `AoT_CardQuest` (script `AoT_Card`) and `AoT_MCMQuest` (script `AoT_MCM`, a SkyUI `SKI_ConfigBase`). The card and the settings page are part of the base mod, and Lodestone, a panel framework (Prisma UI or Magelight UI) and SkyUI are requirements of the mod.
 
 ## The Missives adapter (soft dependency, D-35)
 
