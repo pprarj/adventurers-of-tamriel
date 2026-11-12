@@ -76,11 +76,17 @@ Function ApplyKey()
 	ElseIf _regKey != want
 		UnregisterForKey(_regKey)
 	EndIf
+	Int before = _regKey
 	_regKey = want
 	RegisterForKey(want)
+	; Always on (not behind AoT_Core.Log): once per boot and per key change, and it tells a run whether this
+	; script is alive at all - a missing quest leaves no other trace.
+	Debug.Trace("[AoT] Card: ApplyKey registered=" + want + " previous=" + before)
 EndFunction
 
 Event OnKeyDown(Int aiKeyCode)
+	; Always on: only the card key and Esc are registered, so this fires on those presses only.
+	Debug.Trace("[AoT] Card: OnKeyDown code=" + aiKeyCode + " cardKey=" + AoT_Core.CardKey() + " visible=" + _visible + " member=" + AoT_Core.IsMember())
 	If aiKeyCode == EscCode
 		If _visible || _awaitingHello
 			ClosePanel("esc")
