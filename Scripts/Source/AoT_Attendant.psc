@@ -620,7 +620,8 @@ Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
     Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (Fase 14 etapa 2), 10 and 11 fill the
-    abandon list, 12 abandon the picked slot, 13 refuse, 21 to 24 pick slot 1 to 4.
+    abandon list, 12 abandon the picked slot, 13 refuse, 21 to 24 pick slot 1 to 4. 30 is test surface (D083): take a
+    note of the hall board to the player, kind in aiBand.
     Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
     AoT_Attendant a = q as AoT_Attendant
@@ -702,6 +703,12 @@ Function RunAction(Int aiAction, Int aiBand) Global
     ElseIf aiAction >= 21 && aiAction <= 24
         ; a line of the abandon list was picked: remember which slot until the player confirms or refuses
         StorageUtil.SetIntValue(None, "aot_abandon_pick", aiAction - 20)
+    ElseIf aiAction == 30
+        ; test surface (D083): take a note of the hall board to the player, kind in aiBand (0 ours, 1 Missives, 2 Missives with a Steward)
+        AoT_GuildBoardAlias ba = AoT_ContractsCtl.Get().GetAlias(0) as AoT_GuildBoardAlias
+        If ba
+            ba.TestTakeNote(aiBand)
+        EndIf
     EndIf
     SyncGlobals()
 EndFunction

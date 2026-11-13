@@ -56,6 +56,14 @@ Event OnActivate(ObjectReference akActionRef)
 	TryRefresh(True)
 EndEvent
 
+Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
+	{Conserto 1 da etapa 2 (D083): another mod may post a note on the nearest Missives board, which is this one (Monster
+	Hunt Missives keeps its hunts posted there every 15 s). A non member sees it leave at once, not at the next tick.}
+	If !AoT_Core.IsMember()
+		RequestRefresh()
+	EndIf
+EndEvent
+
 Function RequestRefresh()
 	{Fase 14 etapa 2: asked by the hall tick; runs on this alias' own thread so the tick does not wait.}
 	RegisterForSingleUpdate(0.1)
@@ -78,10 +86,15 @@ Function TryRefresh(Bool abActivation)
 		If StorageUtil.GetIntValue(board, "aot_board_empty", 0) == 0
 			ClearBoard(board)
 			StorageUtil.SetIntValue(board, "aot_board_empty", 1)
+		ElseIf board.GetNumItems() > 0
+			HoldForeign(board)
 		EndIf
-	ElseIf IsDue(board, abActivation)
-		Refresh(board)
-		StorageUtil.SetIntValue(board, "aot_board_empty", 0)
+	Else
+		ReleaseHeld(board)
+		If IsDue(board, abActivation)
+			Refresh(board)
+			StorageUtil.SetIntValue(board, "aot_board_empty", 0)
+		EndIf
 	EndIf
 	_busy = False
 	If _openWhenDone
@@ -115,6 +128,53 @@ Function ClearBoard(ObjectReference akBoard)
 	RetireMissives(akBoard)
 	StorageUtil.UnsetFloatValue(akBoard, "aot_board_day")
 	Debug.Trace("[AoT-F9] board cleared " + akBoard + ": not a member, items=" + akBoard.GetNumItems())
+	If akBoard.GetNumItems() > 0
+		HoldForeign(akBoard)
+	EndIf
+EndFunction
+
+ObjectReference Function HolderOf(ObjectReference akBoard)
+	{Conserto 1 da etapa 2 (D083): a disabled container of our board base, placed once at the board, that keeps what
+	other mods posted here while the player is not a member. Its base is not the Missives one, so no alias of theirs
+	ever picks it.}
+	ObjectReference holder = StorageUtil.GetFormValue(akBoard, "aot_board_hold", None) as ObjectReference
+	If holder
+		Return holder
+	EndIf
+	Form base = Game.GetFormFromFile(0x000DB8, AoT_ContractsCtl.PluginName())
+	If !base
+		Return None
+	EndIf
+	holder = akBoard.PlaceAtMe(base, 1, True, True)
+	If holder
+		StorageUtil.SetFormValue(akBoard, "aot_board_hold", holder)
+		Debug.Trace("[AoT-F14] board holder " + holder + " placed for " + akBoard)
+	EndIf
+	Return holder
+EndFunction
+
+Function HoldForeign(ObjectReference akBoard)
+	{Conserto 1 da etapa 2 (D083): a non member sees no note at all. What is left after our cleanup is not ours (a note
+	of another mod's quest, which still runs): it waits in the holder, quest items too, and comes back at the join.}
+	ObjectReference holder = HolderOf(akBoard)
+	If !holder
+		Debug.Trace("[AoT-F14] board " + akBoard + ": no holder, items=" + akBoard.GetNumItems())
+		Return
+	EndIf
+	Int n = akBoard.GetNumItems()
+	akBoard.RemoveAllItems(holder, True, True)
+	Debug.Trace("[AoT-F14] board held " + n + " foreign items of " + akBoard + " in " + holder + ", left=" + akBoard.GetNumItems())
+EndFunction
+
+Function ReleaseHeld(ObjectReference akBoard)
+	{Conserto 1 da etapa 2 (D083): the member gets back what other mods posted here before the join.}
+	ObjectReference holder = StorageUtil.GetFormValue(akBoard, "aot_board_hold", None) as ObjectReference
+	If !holder || holder.GetNumItems() <= 0
+		Return
+	EndIf
+	Int n = holder.GetNumItems()
+	holder.RemoveAllItems(akBoard, True, True)
+	Debug.Trace("[AoT-F14] board released " + n + " held items to " + akBoard + ", items=" + akBoard.GetNumItems())
 EndFunction
 
 Function Refresh(ObjectReference akBoard)
@@ -136,10 +196,11 @@ Function Refresh(ObjectReference akBoard)
 	_nRetired = 0
 	LoadMissSkip()
 	RetireOwn(akBoard)
-	RetireMissives(akBoard)
 	OfferSituation(akBoard, hall)
 	OfferContracts(akBoard, hall)
 	OfferMissives(akBoard, hall)
+	; conserto 1 da etapa 2 (D083): an untaken Missives offer still shown stays (OfferMissives keeps it); only the rest leaves
+	RetireMissives(akBoard)
 	OfferEmergency(akBoard, hall)
 	Debug.Trace("[AoT-F9] board done " + akBoard + " offered=" + _nOffered + " failed=" + _nFailed + " items=" + akBoard.GetNumItems())
 EndFunction
@@ -615,14 +676,22 @@ Int Function OfferMissivesBand(Int aiBand, ObjectReference akBoard, Int aiQuota,
 	Int i = 0
 	While i < n && got < aiRoom && (aiQuota < 0 || got < aiQuota)
 		Quest q = L.GetAt(i) as Quest
-		If q && TryStartMissive(q, akBoard)
-			If asNote != ""
+		Int how = 0
+		If q
+			how = TryStartMissive(q, akBoard)
+		EndIf
+		If how > 0
+			String kept = ""
+			If how == 2
+				kept = " kept"
+				FixAboveRankNote(q, asNote)
+			ElseIf asNote != ""
 				SetAboveRankNote(q, asNote)
 			EndIf
 			If adapter
 				adapter.RegisterOffer(q, aiBand)
 			EndIf
-			Debug.Trace("[AoT-F9] offer " + q + " pool=missives band=" + aiBand + asNote)
+			Debug.Trace("[AoT-F9] offer " + q + " pool=missives band=" + aiBand + asNote + kept)
 			got += 1
 		EndIf
 		i += 1
@@ -630,36 +699,61 @@ Int Function OfferMissivesBand(Int aiBand, ObjectReference akBoard, Int aiQuota,
 	Return got
 EndFunction
 
-Bool Function TryStartMissive(Quest akQuest, ObjectReference akBoard)
-	{One Missives quest: True when it runs with its note in this board.}
+Int Function TryStartMissive(Quest akQuest, ObjectReference akBoard)
+	{One Missives quest: 1 when it starts with its note in this board, 2 when it already ran as an untaken offer with its
+	note in this board and stays (conserto 1 da etapa 2, D083: the board shows every quest of its bands, so a refresh
+	in the same day no longer takes them away), 0 otherwise.}
 	If SkipThisRefresh(akQuest) || InList(_missSkip, _nMissSkip, akQuest)
-		Return False
+		Return 0
 	EndIf
 	If akQuest.IsRunning()
 		ObjectReference owner = MissOfferBoard(akQuest)
 		If akQuest.GetStage() != 0 || (owner && owner != akBoard)
-			Return False
+			Return 0
+		EndIf
+		ObjectReference held = MissiveNote(akQuest)
+		If held && akBoard.GetItemCount(held.GetBaseObject()) >= 1
+			StorageUtil.SetFormValue(akQuest, "aot_offer_board", akBoard)
+			MarkOffered(akQuest)
+			Return 2
 		EndIf
 		RetireMissive(akQuest, akBoard)
-		Return False
+		Return 0
 	EndIf
 	If !akQuest.Start()
 		Debug.Trace("[AoT-F14] missives start failed " + akQuest + " formid=" + akQuest.GetFormID())
 		MarkFailed(akQuest)
-		Return False
+		Return 0
 	EndIf
 	ObjectReference note = MissiveNote(akQuest)
 	If akQuest.IsRunning() && note && akBoard.GetItemCount(note.GetBaseObject()) >= 1
 		StorageUtil.SetFormValue(akQuest, "aot_offer_board", akBoard)
 		MarkOffered(akQuest)
-		Return True
+		Return 1
 	EndIf
 	Debug.Trace("[AoT-F9] missives not offerable " + akQuest + " formid=" + akQuest.GetFormID() + " running=" + akQuest.IsRunning() + " note=" + note)
 	If akQuest.IsRunning()
 		akQuest.SetStage(110)
 	EndIf
 	MarkFailed(akQuest)
-	Return False
+	Return 0
+EndFunction
+
+Function FixAboveRankNote(Quest akQuest, String asNote)
+	{Conserto 1 da etapa 2 (D083): a kept offer carries the " [Above Rank]" mark only while its band is still above the
+	rank (a promotion can take it off).}
+	ObjectReference note = MissiveNote(akQuest)
+	If !note
+		Return
+	EndIf
+	String nm = note.GetDisplayName()
+	Int at = StringUtil.Find(nm, " [Above Rank]")
+	If asNote == "" && at >= 0
+		Bool ok = note.SetDisplayName(StringUtil.Substring(nm, 0, at), True)
+		Debug.Trace("[AoT-F9] note " + akQuest + " -> " + StringUtil.Substring(nm, 0, at) + " ok=" + ok)
+	ElseIf asNote != "" && at < 0
+		SetAboveRankNote(akQuest, asNote)
+	EndIf
 EndFunction
 
 Int Function DrawBand(Int aiRank)
@@ -731,6 +825,69 @@ Int Function DrawBandAbove(Int aiRank, Int aiOffset)
 		b += 1
 	EndWhile
 	Return -1
+EndFunction
+
+; ---------------------------------------------------------------- test surface (D083)
+
+Quest Function TestTakeNote(Int aiKind)
+	{Test surface, conserto 1 da etapa 2 (D083), reached by AoT_Attendant.RunAction(30, kind): takes the note of the first
+	untaken offer on this board to the player, by the alias ref itself (the same move as taking it from the container,
+	so the note alias gets OnContainerChanged). Kind 0: an offer of ours; 1: a Missives offer; 2: a Missives offer whose
+	quest has a "Steward" alias (the report path). Logs whether the engine calls the held ref deleted.}
+	ObjectReference board = GetReference()
+	Actor player = Game.GetPlayer()
+	Quest q = None
+	ObjectReference note = None
+	If board && aiKind == 0
+		Int k = 0
+		While k < 8 && !q
+			FormList L = None
+			If k < 6
+				L = OurList(k)
+			ElseIf k == 6
+				L = OurSituation
+			Else
+				L = OurEmergency
+			EndIf
+			If L
+				Int i = 0
+				While i < L.GetSize() && !q
+					AoT_Contract c = L.GetAt(i) as AoT_Contract
+					If c && c.IsRunning() && c.GetStage() < 20 && StorageUtil.GetFormValue(c as Quest, "aot_offer_board", None) == board
+						q = c as Quest
+						note = c.NoteRef()
+					EndIf
+					i += 1
+				EndWhile
+			EndIf
+			k += 1
+		EndWhile
+	ElseIf board && (aiKind == 1 || aiKind == 2)
+		Int j = 0
+		Int n = StorageUtil.FormListCount(None, "aot_missives_offer")
+		While j < n && !q
+			Quest m = StorageUtil.FormListGet(None, "aot_missives_offer", j) as Quest
+			If m && m.IsRunning() && m.GetStage() == 0 && StorageUtil.GetFormValue(m, "aot_offer_board", None) == board
+				If aiKind == 1 || m.GetAliasByName("Steward")
+					q = m
+					note = MissiveNote(m)
+				EndIf
+			EndIf
+			j += 1
+		EndWhile
+	EndIf
+	If !q || !note
+		Debug.Trace("[AoT-F14] test take note kind=" + aiKind + " board=" + board + ": no offer (q=" + q + " note=" + note + ")")
+		Return None
+	EndIf
+	Form nb = note.GetBaseObject()
+	Int before = player.GetItemCount(nb)
+	Bool del = note.IsDeleted()
+	Int onBoard = board.GetItemCount(nb)
+	board.RemoveItem(note, 1, True, player)
+	Utility.Wait(0.5)
+	Debug.Trace("[AoT-F14] test take note kind=" + aiKind + " q=" + q + " formid=" + q.GetFormID() + " note=" + note + " deleted=" + del + " on_board=" + onBoard + " player " + before + " -> " + player.GetItemCount(nb) + " stage=" + q.GetStage())
+	Return q
 EndFunction
 
 ObjectReference Function MissiveNote(Quest akQuest)
