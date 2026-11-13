@@ -95,6 +95,7 @@ Bool Function JoinGuild() Global
 	EndIf
 	StorageUtil.SetIntValue(None, "aot_member", 1)
 	JoinedDay()
+	InvalidateBoards()
 	Return True
 EndFunction
 
@@ -262,6 +263,19 @@ Int Function PointsForBand(Int aiBand) Global
 	Return ScaleByOption(base, PointsMultiplier())
 EndFunction
 
+Int Function GoldForBand(Int aiBand) Global
+	{Fase 14 etapa 2: gold the attendant pays when a contract of this band is reported (aot_gold_by_band of the table);
+	0 on a bad band or a missing entry.}
+	If aiBand < 0 || aiBand > MaxBand()
+		Return 0
+	EndIf
+	If JsonUtil.IntListCount(TablePath(), "aot_gold_by_band") <= aiBand
+		Debug.Trace("[AoT] table: aot_gold_by_band missing or short")
+		Return 0
+	EndIf
+	Return JsonUtil.IntListGet(TablePath(), "aot_gold_by_band", aiBand)
+EndFunction
+
 ; ---------------------------------------------------------------------------
 ; Options (D077): the six values of the settings page. They live in the save (StorageUtil, no key
 ; object), are read at the moment of use and never copied into a property. Missing key = the default.
@@ -313,9 +327,32 @@ Int Function BoardOffers() Global
 	Return n
 EndFunction
 
+Function InvalidateBoards() Global
+	{Fase 14 etapa 2 (B2b): what the boards may offer changed (a fee paid, the join, a promotion). Every board refreshes
+	at its next check, on the same game day.}
+	StorageUtil.AdjustIntValue(None, "aot_board_epoch", 1)
+EndFunction
+
 Bool Function SuppressVanillaBounties() Global
-	{D-32 switch, on by default. Stored by the settings page; the board acts on it in Fase 14 etapa 2.}
+	{D-32 switch, on by default. Stored by the settings page; SyncD32 copies it to AoT_D32Suppress.}
 	Return StorageUtil.GetIntValue(None, "aot_opt_d32", 1) != 0
+EndFunction
+
+Function SyncD32() Global
+	{Fase 14 etapa 2 (D082): the eight vanilla lines that hand out BQ01-04 (steward and innkeeper) show only while the
+	global AoT_D32Suppress (main plugin 0xF5E, 1 by default) is 0. It follows the switch.}
+	GlobalVariable g = Game.GetFormFromFile(0x000F5E, "AdventurersOfTamriel.esp") as GlobalVariable
+	If !g
+		Return
+	EndIf
+	Float v = 0.0
+	If SuppressVanillaBounties()
+		v = 1.0
+	EndIf
+	If g.GetValue() != v
+		g.SetValue(v)
+		Log("[AoT] D-32: AoT_D32Suppress -> " + v)
+	EndIf
 EndFunction
 
 Bool Function DebugLogOn() Global
@@ -494,6 +531,7 @@ Bool Function Promote() Global
 	EndIf
 	StorageUtil.SetIntValue(None, "aot_rank", current + 1)
 	StorageUtil.SetIntValue(None, "aot_points", 0)
+	InvalidateBoards()
 	; Public contract 1.0: tell other mods. numArg = the new rank (0 = F ... 6 = S), strArg empty.
 	Game.GetPlayer().SendModEvent("AoT_Promoted", "", (current + 1) as Float)
 	Return True

@@ -148,6 +148,7 @@ Event OnOptionSelect(Int aiOption)
 		Else
 			StorageUtil.SetIntValue(None, "aot_opt_d32", 0)
 		EndIf
+		AoT_Core.SyncD32()
 		SetToggleOptionValue(aiOption, on)
 	ElseIf aiOption == _optDebug
 		Bool dbg = !AoT_Core.DebugLogOn()
@@ -208,6 +209,7 @@ Event OnOptionDefault(Int aiOption)
 		Return
 	ElseIf aiOption == _optD32
 		StorageUtil.SetIntValue(None, "aot_opt_d32", 1)
+		AoT_Core.SyncD32()
 		SetToggleOptionValue(aiOption, True)
 		Return
 	ElseIf aiOption == _optDebug
@@ -233,7 +235,7 @@ Event OnOptionHighlight(Int aiOption)
 	ElseIf aiOption == _optOffers
 		SetInfoText("How many contracts the board offers at each refresh, 3 to 15. Default 5.")
 	ElseIf aiOption == _optD32
-		SetInfoText("Hides the vanilla bounty and steward quests the guild replaces. Default on. The board acts on it in a later update.")
+		SetInfoText("Hides the vanilla bounty and steward quests the guild replaces. Default on. With it on, stewards and innkeepers do not offer them.")
 	ElseIf aiOption == _optDebug
 		SetInfoText("Writes the guild's informational lines to the Papyrus log. Errors are always written. Default off.")
 	EndIf

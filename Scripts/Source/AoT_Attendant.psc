@@ -210,6 +210,8 @@ Function PayFee(Int aiBand)
         Return
     EndIf
     player.RemoveItem(Game.GetForm(0x0000000F) as MiscObject, cost)
+    ; Fase 14 etapa 2 (B2b): the board shows the band on the same day, not on the next
+    AoT_Core.InvalidateBoards()
     Int goldAfter = player.GetGoldAmount()
     AoT_Core.Log("[AoT] Attendant PayFee band=" + aiBand + " cost=" + cost + " gold " + goldBefore + " -> " + goldAfter)
 EndFunction
@@ -401,6 +403,7 @@ Function SyncGlobals() Global
         member = 1
     EndIf
     _SetGlobal("ismember", member)
+    AoT_Core.SyncD32()
     ; D077: a fee is offered only for a band the current rank can draw (weight above 0), unpaid, with a price
     Int anyFee = 0
     Int rank = AoT_Core.GetRank()
@@ -455,8 +458,13 @@ Function SyncGlobals() Global
         oc = 0
     EndIf
     _SetGlobal("opencount", oc)
-    ; the report topic waits for the board of Fase 14 etapa 2 (nothing in the ledger says "finished, not yet delivered")
-    _SetGlobal("hasdone", 0)
+    ; Fase 14 etapa 2: the report topic shows while a finished contract waits (ours, aot_to_report) or a Missives
+    ; quest of the guild waits at its Steward stage (R1)
+    Int done = 0
+    If member == 1 && ReadyToReport() > 0
+        done = 1
+    EndIf
+    _SetGlobal("hasdone", done)
     _SetGlobal("abandonpick", StorageUtil.GetIntValue(None, "aot_abandon_pick", 0))
     ; the ladder cut (Fase 8): the exam topic shows when the points enable a promotion that asks for the
     ; room exam and none is running; the plain promotion shows when the cut asks for no exam.
@@ -569,10 +577,49 @@ Function _PutSlotName(Quest akTalk, Int aiSlot, String asName) Global
     al.ForceRefTo(r)
 EndFunction
 
+AoT_MissivesAdapter Function MissivesAdapter() Global
+    If !Game.IsPluginInstalled("AdventurersOfTamriel_Missives.esp")
+        Return None
+    EndIf
+    Return Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Missives.esp") as AoT_MissivesAdapter
+EndFunction
+
+Int Function ReadyToReport() Global
+    {Fase 14 etapa 2: contracts of ours whose work is done (aot_to_report), plus the Missives quests of the guild at
+    their Steward stage (R1).}
+    Int n = StorageUtil.FormListCount(None, "aot_to_report")
+    AoT_MissivesAdapter ma = MissivesAdapter()
+    If ma
+        n += ma.CountStewardReady()
+    EndIf
+    Return n
+EndFunction
+
+Int Function ReportAll() Global
+    {Fase 14 etapa 2 (Reportar, R1): ours are delivered (points and the band's gold); a Missives quest goes to stage 100,
+    where Missives pays its own gold, and the ledger closes it with the points.}
+    Int n = 0
+    Int i = StorageUtil.FormListCount(None, "aot_to_report") - 1
+    While i >= 0
+        AoT_Contract c = StorageUtil.FormListGet(None, "aot_to_report", i) as AoT_Contract
+        If c && c.Deliver()
+            n += 1
+        ElseIf !c
+            StorageUtil.FormListRemoveAt(None, "aot_to_report", i)
+        EndIf
+        i -= 1
+    EndWhile
+    AoT_MissivesAdapter ma = MissivesAdapter()
+    If ma
+        n += ma.DeliverStewardReady()
+    EndIf
+    Return n
+EndFunction
+
 Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
-    Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (not wired), 10 and 11 fill the
+    Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (Fase 14 etapa 2), 10 and 11 fill the
     abandon list, 12 abandon the picked slot, 13 refuse, 21 to 24 pick slot 1 to 4.
     Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
@@ -628,8 +675,10 @@ Function RunAction(Int aiAction, Int aiBand) Global
             EndIf
         EndIf
     ElseIf aiAction == 9
-        ; the delivery topic waits for the board of Fase 14 etapa 2: its condition (AoT_HasDone) is 0 until then
-        AoT_Core.Log("[AoT] Attendant: report topic is not wired yet")
+        ; Fase 14 etapa 2: "I want to report a finished contract." - every finished contract is paid at once
+        Int rp = AoT_Core.GetPoints()
+        Int rn = ReportAll()
+        AoT_Core.Log("[AoT] Attendant: report delivered=" + rn + " points " + rp + " -> " + AoT_Core.GetPoints())
     ElseIf aiAction == 10 || aiAction == 11
         ; open the abandon list / greet: the slot names are filled before the topic menu is built
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)

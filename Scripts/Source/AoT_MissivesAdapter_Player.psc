@@ -9,6 +9,11 @@ GlobalVariable Property VeryHighChance Auto
 Event OnPlayerLoadGame()
     ResolveGlobals()
     ApplyViaC()
+    ; Fase 14 etapa 2 (C3a): the town boards and the trigger chances, after the Missives settings loader
+    AoT_MissivesAdapter adapter = GetOwningQuest() as AoT_MissivesAdapter
+    if adapter
+        adapter.ApplyTownRule()
+    endif
 EndEvent
 
 Function ResolveGlobals()

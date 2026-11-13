@@ -123,5 +123,10 @@ Function _EnsureBoard(Int aiHall) Global
 	AoT_ContractsCtl ctl = AoT_ContractsCtl.Get()
 	If ctl
 		ctl.SetBoard(cur)
+		; Fase 14 etapa 2: fill the board while the player is in the hall, not on activation (R2-6, R2-7)
+		AoT_GuildBoardAlias ba = ctl.GetAlias(0) as AoT_GuildBoardAlias
+		If ba
+			ba.RequestRefresh()
+		EndIf
 	EndIf
 EndFunction

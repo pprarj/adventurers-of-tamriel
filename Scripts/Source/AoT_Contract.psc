@@ -72,18 +72,41 @@ Function TryOpen()
 EndFunction
 
 Bool Function TryComplete()
+	{Fase 14 etapa 2 (Reportar): the work is done, and the contract waits for the report at the attendant
+	(aot_to_report), who pays the points and the gold (Deliver). Calling it again changes nothing.}
 	Int id = AoT_Core.FindOpenContract(self as Quest)
 	If id == 0
 		Debug.Trace("[AoT-F9] TryComplete no open contract on " + self)
 		Return False
 	EndIf
-	Bool ok = AoT_Core.CompleteContract(id)
-	Debug.Trace("[AoT-F9] CompleteContract id=" + id + " -> " + ok + " points=" + AoT_Core.GetPoints())
-	If ok
+	If !StorageUtil.FormListHas(None, "aot_to_report", self as Quest)
+		StorageUtil.FormListAdd(None, "aot_to_report", self as Quest, False)
 		SetObjectiveCompleted(20)
+		Debug.Trace("[AoT-F14] contract done, to report: id=" + id + " " + self)
+	EndIf
+	Return True
+EndFunction
+
+Bool Function Deliver()
+	{Fase 14 etapa 2: reported at the attendant. The ledger closes as completed (the band's points) and the band's
+	gold of the table is paid (aot_gold_by_band); then the quest ends as before.}
+	Int id = AoT_Core.FindOpenContract(self as Quest)
+	If id == 0
+		StorageUtil.FormListRemove(None, "aot_to_report", self as Quest, True)
+		Debug.Trace("[AoT-F14] Deliver no open contract on " + self)
+		Return False
+	EndIf
+	Bool ok = AoT_Core.CompleteContract(id)
+	Int gold = 0
+	If ok
+		gold = AoT_Core.GoldForBand(Band)
+		If gold > 0
+			Game.GetPlayer().AddItem(Game.GetForm(0x0000000F), gold)
+		EndIf
 		MirrorStage(100)
 		Finish(id)
 	EndIf
+	Debug.Trace("[AoT-F14] Deliver id=" + id + " -> " + ok + " gold=" + gold + " points=" + AoT_Core.GetPoints())
 	Return ok
 EndFunction
 
@@ -146,6 +169,7 @@ Function Finish(Int aiId)
 	If aiId > 0
 		StorageUtil.UnsetFormValue(None, "aot_own_q" + aiId)
 	EndIf
+	StorageUtil.FormListRemove(None, "aot_to_report", self as Quest, True)
 	Stop()
 EndFunction
 
