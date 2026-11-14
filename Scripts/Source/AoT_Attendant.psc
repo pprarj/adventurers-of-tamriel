@@ -360,6 +360,9 @@ Int Function _GlobalId(String asName) Global
         Return 0x000F27
     ElseIf asName == "abandonpick"
         Return 0x000F28
+    ElseIf asName == "hassteward"
+        ; Fase 14 etapa 4 (D085): a Missives quest of the guild waits at its Steward stage (the R1 topic)
+        Return 0x000F5F
     EndIf
     Return 0x000DA4
 EndFunction
@@ -458,13 +461,18 @@ Function SyncGlobals() Global
         oc = 0
     EndIf
     _SetGlobal("opencount", oc)
-    ; Fase 14 etapa 2: the report topic shows while a finished contract waits (ours, aot_to_report) or a Missives
-    ; quest of the guild waits at its Steward stage (R1)
+    ; Fase 14 etapa 4 (D085): the report topic shows while a finished contract of ours waits (aot_to_report); the R1
+    ; topic while a Missives quest of the guild waits at its Steward stage. Two numbers, two topics.
     Int done = 0
     If member == 1 && ReadyToReport() > 0
         done = 1
     EndIf
     _SetGlobal("hasdone", done)
+    Int steward = 0
+    If member == 1 && ReadyAtSteward() > 0
+        steward = 1
+    EndIf
+    _SetGlobal("hassteward", steward)
     _SetGlobal("abandonpick", StorageUtil.GetIntValue(None, "aot_abandon_pick", 0))
     ; the ladder cut (Fase 8): the exam topic shows when the points enable a promotion that asks for the
     ; room exam and none is running; the plain promotion shows when the cut asks for no exam.
@@ -585,19 +593,33 @@ AoT_MissivesAdapter Function MissivesAdapter() Global
 EndFunction
 
 Int Function ReadyToReport() Global
-    {Fase 14 etapa 2: contracts of ours whose work is done (aot_to_report), plus the Missives quests of the guild at
-    their Steward stage (R1).}
-    Int n = StorageUtil.FormListCount(None, "aot_to_report")
+    {Fase 14 etapa 4 (D085): contracts of ours whose work is done (aot_to_report). The Missives quests at their Steward
+    stage have their own topic now (ReadyAtSteward).}
+    Return StorageUtil.FormListCount(None, "aot_to_report")
+EndFunction
+
+Int Function ReadyAtSteward() Global
+    {Fase 14 etapa 4 (D085, R1): the Missives quests of the guild (aot_open) waiting at their Steward stage.}
     AoT_MissivesAdapter ma = MissivesAdapter()
     If ma
-        n += ma.CountStewardReady()
+        Return ma.CountStewardReady()
     EndIf
-    Return n
+    Return 0
+EndFunction
+
+Int Function DeliverAtSteward() Global
+    {Fase 14 etapa 4 (D085, R1): each Missives quest at its Steward stage goes to stage 100, where Missives pays its own
+    gold, and the ledger closes it with the points.}
+    AoT_MissivesAdapter ma = MissivesAdapter()
+    If ma
+        Return ma.DeliverStewardReady()
+    EndIf
+    Return 0
 EndFunction
 
 Int Function ReportAll() Global
-    {Fase 14 etapa 2 (Reportar, R1): ours are delivered (points and the band's gold); a Missives quest goes to stage 100,
-    where Missives pays its own gold, and the ledger closes it with the points.}
+    {Fase 14 etapa 2 (Reportar): ours are delivered (points and the band's gold). Fase 14 etapa 4 (D085): the Missives
+    quests at their Steward stage left this path for DeliverAtSteward (action 14).}
     Int n = 0
     Int i = StorageUtil.FormListCount(None, "aot_to_report") - 1
     While i >= 0
@@ -609,19 +631,16 @@ Int Function ReportAll() Global
         EndIf
         i -= 1
     EndWhile
-    AoT_MissivesAdapter ma = MissivesAdapter()
-    If ma
-        n += ma.DeliverStewardReady()
-    EndIf
     Return n
 EndFunction
 
 Function RunAction(Int aiAction, Int aiBand) Global
     {1 pay the fee of aiBand, 2 abandon the oldest open contract, 3 deliver the head,
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
-    Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (Fase 14 etapa 2), 10 and 11 fill the
-    abandon list, 12 abandon the picked slot, 13 refuse, 21 to 24 pick slot 1 to 4. 30 is test surface (D083): take a
-    note of the hall board to the player, kind in aiBand.
+    Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (Fase 14 etapa 2; ours only since etapa 4),
+    10 and 11 fill the abandon list, 12 abandon the picked slot, 13 refuse, 14 turn in the Missives quests at their
+    Steward stage (R1, Fase 14 etapa 4, D085), 21 to 24 pick slot 1 to 4. 30 is test surface (D083): take a note of
+    the hall board to the player, kind in aiBand.
     Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
     AoT_Attendant a = q as AoT_Attendant
@@ -680,6 +699,11 @@ Function RunAction(Int aiAction, Int aiBand) Global
         Int rp = AoT_Core.GetPoints()
         Int rn = ReportAll()
         AoT_Core.Log("[AoT] Attendant: report delivered=" + rn + " points " + rp + " -> " + AoT_Core.GetPoints())
+    ElseIf aiAction == 14
+        ; Fase 14 etapa 4 (D085): "I finished a job the steward posted." - every Missives quest at its Steward stage
+        Int sp = AoT_Core.GetPoints()
+        Int sn = DeliverAtSteward()
+        AoT_Core.Log("[AoT] Attendant: steward delivered=" + sn + " points " + sp + " -> " + AoT_Core.GetPoints())
     ElseIf aiAction == 10 || aiAction == 11
         ; open the abandon list / greet: the slot names are filled before the topic menu is built
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)

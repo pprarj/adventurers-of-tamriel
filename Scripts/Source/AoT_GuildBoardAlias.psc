@@ -511,7 +511,9 @@ Bool Function TwinBusy(AoT_Contract akC)
 	Return False
 EndFunction
 
-Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy)
+Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy, Bool abAbove = False)
+	{Fase 14 etapa 4 (D085): the one path of our offers (common, situation, emergency) also writes the band label on the
+	note; abAbove adds the [Above Rank] mark after it.}
 	AoT_Contract c = akQuest as AoT_Contract
 	If !c
 		Return False
@@ -535,6 +537,7 @@ Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy)
 		Return False
 	EndIf
 	MarkOffered(akQuest)
+	LabelNote(akQuest, note, c.Band, abAbove)
 	Debug.Trace("[AoT-F9] offer " + akQuest + " " + asWhy + " band=" + c.Band + " hold=" + c.HoldIndex + " dungeon=" + c.DungeonLocation() + " target=" + c.TargetActor())
 	Return True
 EndFunction
@@ -570,10 +573,9 @@ Function OfferContracts(ObjectReference akBoard, Int aiHall)
 		If band < 0
 			Return
 		EndIf
-		Quest q = PickFromBand(band, akBoard, aiHall)
+		Quest q = PickFromBand(band, akBoard, aiHall, aboveKind > 0)
 		If q
 			If aboveKind > 0
-				SetAboveRankNote(q, " [Above Rank]")
 				If aboveKind == 1
 					aboveOne += 1
 				Else
@@ -593,7 +595,7 @@ Function OfferContracts(ObjectReference akBoard, Int aiHall)
 	EndWhile
 EndFunction
 
-Quest Function PickFromBand(Int aiBand, ObjectReference akBoard, Int aiHall)
+Quest Function PickFromBand(Int aiBand, ObjectReference akBoard, Int aiHall, Bool abAbove = False)
 	{One of our candidates of the hold (Collect tiers). A quest that fails to start leaves the refresh
 	and the draw goes again (D042); None only when no candidate is left. Fase 14 etapa 2: the Missives
 	quests are no longer drawn here; OfferMissives puts them all on the board.}
@@ -614,7 +616,7 @@ Quest Function PickFromBand(Int aiBand, ObjectReference akBoard, Int aiHall)
 			c.Retire()
 			ready = c.WaitStopped()
 		EndIf
-		If ready && StartOwn(cand[roll], akBoard, "pool=ours")
+		If ready && StartOwn(cand[roll], akBoard, "pool=ours", abAbove)
 			Return cand[roll]
 		EndIf
 		MarkFailed(cand[roll])
@@ -684,10 +686,10 @@ Int Function OfferMissivesBand(Int aiBand, ObjectReference akBoard, Int aiQuota,
 			String kept = ""
 			If how == 2
 				kept = " kept"
-				FixAboveRankNote(q, asNote)
-			ElseIf asNote != ""
-				SetAboveRankNote(q, asNote)
 			EndIf
+			; D085: new or kept, the note is labelled again (the label is rebuilt from the plain name, so a kept note
+			; loses an [Above Rank] mark its band no longer earns, as FixAboveRankNote did, D083)
+			LabelNote(q, MissiveNote(q), aiBand, asNote != "")
 			If adapter
 				adapter.RegisterOffer(q, aiBand)
 			EndIf
@@ -739,21 +741,32 @@ Int Function TryStartMissive(Quest akQuest, ObjectReference akBoard)
 	Return 0
 EndFunction
 
-Function FixAboveRankNote(Quest akQuest, String asNote)
-	{Conserto 1 da etapa 2 (D083): a kept offer carries the " [Above Rank]" mark only while its band is still above the
-	rank (a promotion can take it off).}
-	ObjectReference note = MissiveNote(akQuest)
-	If !note
+Function LabelNote(Quest akQuest, ObjectReference akNote, Int aiBand, Bool abAbove)
+	{Fase 14 etapa 4 (D085, D084): every board note, ours and of Missives, carries its band, " [Band F]" to " [Band A]"
+	(band 0 to 5), and " [Above Rank]" after it when the band is above the rank (D005). The name is first cut back to its
+	plain part, so a note labelled before (a kept Missives offer, D083) ends with one label, and loses an [Above Rank]
+	mark its band no longer earns. One log line per labelled note, for the test to read the name without the menu.}
+	If !akNote || aiBand < 0 || aiBand > AoT_Core.MaxBand()
+		Debug.Trace("[AoT-F14] note label skipped q=" + akQuest + " band=" + aiBand + " note=" + akNote)
 		Return
 	EndIf
-	String nm = note.GetDisplayName()
+	String nm = akNote.GetDisplayName()
+	Int cut = StringUtil.Find(nm, " [Band ")
 	Int at = StringUtil.Find(nm, " [Above Rank]")
-	If asNote == "" && at >= 0
-		Bool ok = note.SetDisplayName(StringUtil.Substring(nm, 0, at), True)
-		Debug.Trace("[AoT-F9] note " + akQuest + " -> " + StringUtil.Substring(nm, 0, at) + " ok=" + ok)
-	ElseIf asNote != "" && at < 0
-		SetAboveRankNote(akQuest, asNote)
+	If at >= 0 && (cut < 0 || at < cut)
+		cut = at
 	EndIf
+	If cut > 0
+		nm = StringUtil.Substring(nm, 0, cut)
+	EndIf
+	String newName = nm + " [Band " + StringUtil.Substring("FEDCBA", aiBand, 1) + "]"
+	If abAbove
+		newName += " [Above Rank]"
+	EndIf
+	If !akNote.SetDisplayName(newName, True)
+		Debug.Trace("[AoT-F14] note label SetDisplayName failed q=" + akQuest + " note=" + akNote)
+	EndIf
+	Debug.Trace("[AoT-F14] note label q=" + akQuest + " band=" + aiBand + " name=" + akNote.GetDisplayName())
 EndFunction
 
 Int Function DrawBand(Int aiRank)
@@ -896,19 +909,6 @@ ObjectReference Function MissiveNote(Quest akQuest)
 		Return ali.GetReference()
 	EndIf
 	Return None
-EndFunction
-
-Function SetAboveRankNote(Quest akQuest, String asNote)
-	ReferenceAlias ali = akQuest.GetAliasByName("Missive") as ReferenceAlias
-	If !ali
-		ali = akQuest.GetNthAlias(6) as ReferenceAlias
-	EndIf
-	If ali && ali.GetReference()
-		ObjectReference note = ali.GetReference()
-		String newName = note.GetDisplayName() + asNote
-		Bool ok = note.SetDisplayName(newName, True)
-		Debug.Trace("[AoT-F9] note " + akQuest + " -> " + newName + " ok=" + ok)
-	EndIf
 EndFunction
 
 ; ---------------------------------------------------------------- situation and emergency
