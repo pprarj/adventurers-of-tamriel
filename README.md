@@ -3,7 +3,8 @@
 An adventurers' guild for Skyrim: a branch of the guild in every hold, a board of ranked contracts from F to S, and
 promotion earned through points and proof.
 
-**Status: early development.** Nothing here is released yet.
+**Status: released.** Version 1.0.0 is on Nexus Mods:
+https://www.nexusmods.com/skyrimspecialedition/mods/194936
 
 ## What the mod does
 
