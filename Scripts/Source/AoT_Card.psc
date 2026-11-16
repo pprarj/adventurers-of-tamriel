@@ -23,13 +23,16 @@ String Property EvtReady   = "LodestoneWebUIViewReady" AutoReadOnly
 
 ; Two floors, one per surface. Never one number for both: the web surface and
 ; the focus surface entered in different DLL versions.
-; 1023000 (1.23.0) is where the Meridian UI level left the mod root (see
+; 1023000 (1.23.0) is where the web UI level left the mod root (see
 ; IM_Core.WebUIMinVersion); 1022000 (1.22.0) is where WebUIFocusView exists.
 Int Property WebUIMinVersion      = 1023000 AutoReadOnly
 Int Property WebUIFocusMinVersion = 1022000 AutoReadOnly
 ; 1037000 (Nexus 1.6.0) is the perk module (GetPerkPoints, TryBuyPerk, GetPerkTree*).
 ; Below it the card opens without trees and says why.
 Int Property PerkMinVersion       = 1037000 AutoReadOnly
+; 1044000 (1.44.0) adds GetPerkTreeOffsetX / GetPerkTreeOffsetY (the node's fine position, HNAM / VNAM). Below it the
+; card draws on the integer grid alone (D094).
+Int Property OffsetMinVersion     = 1044000 AutoReadOnly
 
 ; DirectX scan code of the hotkey: the settings page writes it (D077), AoT_Core.CardKey() reads it at the
 ; moment of use; 65 (F7) is the default. _regKey is the key registered now, 0 in a save made before the option.
@@ -52,14 +55,26 @@ Bool _pending       = False
 Bool _visible       = False
 Bool _wanted        = False
 Bool _awaitingHello = False
+; D103: True once the payload of this opening left. A "ready" before it is the page's own hello at load, which can
+; overtake the payload while BuildPayload runs; trees pushed then were wiped by the payload that came after them.
+Bool _payloadSent   = False
 
 ; The skills drawn right now, one per column, filled at every opening. A buy
 ; click names a column and a node index; the index is only meaningful against
 ; the tree of THAT skill, read again at click time (same order every call).
 String[] _skills
 Int _skillCount = 0
-; Set by NextToBuy: the position in the rank chain of the highest owned rank.
+; Set by NextToBuy: the position in the rank chain of the highest owned rank, and that rank (None when none owned).
 Int _lastHighest = -1
+Perk _lastOwned = None
+; Set by NodeState: the rank the player would take next (None when the chain is complete).
+Perk _lastTarget = None
+
+; D093: the last perks taken ("Skill:Perk^...", newest first, at most RecentMax) and, per skill, how many ranks of
+; each node the player had at the last read of that tree. Both live in the save (StorageUtil on None).
+String Property RecentKey  = "aot_card_recent" AutoReadOnly
+String Property OwnedKey   = "aot_card_own_" AutoReadOnly
+Int Property RecentMax     = 4 AutoReadOnly
 
 Event OnInit()
 	ApplyKey()
@@ -110,6 +125,11 @@ Event OnKeyDown(Int aiKeyCode)
 	Bool inText = UI.IsTextInputEnabled()
 	If inMenu || inText
 		Debug.Trace("[AoT] Card: OnKeyDown ignored, menuMode=" + inMenu + " textInput=" + inText)
+		Return
+	EndIf
+	; D093: with a modifier chosen on the settings page, the key alone does not open (closing above never needs it)
+	If !AoT_Core.CardModifierHeld()
+		Debug.Trace("[AoT] Card: OnKeyDown ignored, modifier " + AoT_Core.CardModifierName(AoT_Core.CardModifier()) + " not held")
 		Return
 	EndIf
 	; D077: the card belongs to the guild's members; the attendant enrols a new character
@@ -174,6 +194,7 @@ Function OpenCard()
 		UnregisterForKey(EscCode)
 		Debug.Trace("[AoT] Card: WebUICreateView refused " + ViewPath)
 		ShowPlain()
+		Return
 	EndIf
 	Debug.Trace("[AoT] Card: WebUICreateView accepted " + ViewPath)
 EndFunction
@@ -198,6 +219,7 @@ Function OpenNow()
 	bridge means SOME page loaded (an error page loads too). Only the page can say
 	it is OURS, and it does that by calling AoTCardAction("ready-...").}
 	_awaitingHello = True
+	_payloadSent = False
 	RegisterForSingleUpdate(HelloSeconds)
 	Lodestone.WebUIShow(ViewId)
 	_visible = True
@@ -206,7 +228,9 @@ EndFunction
 
 Function Push()
 	AoT_Core.Log("[AoT] Card: push rank=" + RankLetter(AoT_Core.GetRank()) + " points=" + AoT_Core.GetPoints())
-	Lodestone.WebUICall(ViewId, FnCard, BuildPayload())
+	String payload = BuildPayload()
+	Lodestone.WebUICall(ViewId, FnCard, payload)
+	_payloadSent = True
 EndFunction
 
 Function PushTrees()
@@ -230,6 +254,11 @@ Event OnCardAction(String asEvent, String asAction, Float afNum, Form akSender)
 	String act = Unwrap(asAction)
 	If StringUtil.Find(act, "ready") == 0
 		If !_awaitingHello
+			Return
+		EndIf
+		; D103: the page answers every payload with "ready", so the one that counts comes after ours
+		If !_payloadSent
+			AoT_Core.Log("[AoT] Card: early " + act + " ignored, payload not sent yet")
 			Return
 		EndIf
 		_awaitingHello = False
@@ -407,6 +436,8 @@ String Function BuildPayload()
 	text += "c_failed|" + failed + eol
 	text += "c_open|" + open + eol
 	text += "c_lost|" + lost + eol
+	; D093: the last perks taken as the save holds them now; each tree read below may add to it
+	text += "c_recent|" + StorageUtil.GetStringValue(None, RecentKey, "") + eol
 	Int b = 0
 	While b < 6
 		Int paid = 0
@@ -512,12 +543,14 @@ Perk Function NextToBuy(Perk akHead)
 	perk to buy next is the one after the highest rank owned, the head when none is
 	owned, None when the chain is complete. Sets _lastHighest (-1 when none owned).}
 	_lastHighest = -1
+	_lastOwned = None
 	Perk target = akHead
 	Perk cur = akHead
 	Int pos = 0
 	While cur != None && pos < 16
 		If Lodestone.HasPerk(cur)
 			_lastHighest = pos
+			_lastOwned = cur
 			target = cur.GetNextPerk()
 		EndIf
 		cur = cur.GetNextPerk()
@@ -530,6 +563,7 @@ Int Function NodeState(Perk akHead, Int aiPoints)
 	{0 locked, 1 can buy, 2 owned (chain complete), 3 partly owned and the next rank
 	can be bought, 4 partly owned and it cannot.}
 	Perk target = NextToBuy(akHead)
+	_lastTarget = target
 	Int highest = _lastHighest
 	If target == None
 		Return 2
@@ -563,24 +597,72 @@ String Function BuildTree(Int aiSlot)
 	Int pp = PerkPoints()
 	Int n = perks.Length
 
+	; D094: the fine position of each node (HNAM / VNAM), same order as the grid. Older Lodestone, or a list that does
+	; not match the tree: no offset keys are sent and the card draws on the grid alone.
+	; (an array is never assigned, compared or passed as None in Papyrus: a Bool says whether the lists are usable)
+	Bool hasOffset = False
+	Float[] hx
+	Float[] vy
+	If Lodestone.GetVersion() >= OffsetMinVersion
+		hx = Lodestone.GetPerkTreeOffsetX(skill)
+		vy = Lodestone.GetPerkTreeOffsetY(skill)
+		hasOffset = hx.Length == n && vy.Length == n
+	Else
+		AoT_Core.Log("[AoT] Card: Lodestone below 1.44.0, no perk offsets (grid only)")
+	EndIf
+
+	; D093: what the save saw at the last read of this tree, to find the ranks taken since (in or out of the card)
+	; (first read of this skill, or a tree whose node count changed: only the picture is written, no entry)
+	String seen = StorageUtil.GetStringValue(None, OwnedKey + skill, "")
+	String[] before = PapyrusUtil.StringSplit(seen, ",")
+	Bool compare = seen != "" && before.Length == n && n > 0
 	String xs = ""
 	String ys = ""
+	String hs = ""
+	String vs = ""
 	String ss = ""
 	String nm = ""
+	String ds = ""
+	String own = ""
 	Int i = 0
 	While i < n
 		If i > 0
 			xs += ","
 			ys += ","
+			hs += ","
+			vs += ","
 			ss += ","
 			nm += "^"
+			ds += "^"
+			own += ","
 		EndIf
 		xs += gx[i]
 		ys += gy[i]
+		If hasOffset
+			hs += hx[i]
+			vs += vy[i]
+		EndIf
 		ss += NodeState(perks[i], pp)
 		nm += pn[i]
+		; the rank the player would take now; with the chain complete, the last one taken
+		Perk shown = _lastTarget
+		If shown == None
+			shown = _lastOwned
+		EndIf
+		If shown == None
+			shown = perks[i]
+		EndIf
+		ds += OneLine(PO3_SKSEFunctions.GetDescription(shown))
+		Int ranks = _lastHighest + 1
+		own += ranks
+		If compare
+			If ranks > (before[i] as Int)
+				AddRecent(skill, pn[i], ranks)
+			EndIf
+		EndIf
 		i += 1
 	EndWhile
+	StorageUtil.SetStringValue(None, OwnedKey + skill, own)
 	String es = ""
 	i = 0
 	While i < edges.Length
@@ -599,18 +681,89 @@ String Function BuildTree(Int aiSlot)
 	text += k + "n|" + n + eol
 	text += k + "x|" + xs + eol
 	text += k + "y|" + ys + eol
+	If hasOffset
+		text += k + "hx|" + hs + eol
+		text += k + "vy|" + vs + eol
+	EndIf
 	text += k + "s|" + ss + eol
 	text += k + "names|" + nm + eol
 	text += k + "e|" + es + eol
-	AoT_Core.Log("[AoT] Card: tree " + skill + " nodes=" + n + " edges=" + (edges.Length / 2) + " points=" + pp + " read in " + (Utility.GetCurrentRealTime() - t0) + " s")
+	text += k + "desc|" + ds + eol
+	text += "c_recent|" + StorageUtil.GetStringValue(None, RecentKey, "") + eol
+	AoT_Core.Log("[AoT] Card: tree " + skill + " nodes=" + n + " edges=" + (edges.Length / 2) + " points=" + pp + " owned=" + own + " read in " + (Utility.GetCurrentRealTime() - t0) + " s")
+	If AoT_Core.DebugLogOn()
+		; D093: the whole payload on one line, so a bench can replay what the game really sent
+		Debug.Trace("[AoT] Card: payload " + PapyrusUtil.StringJoin(PapyrusUtil.StringSplit(text, eol), " ~ "))
+	EndIf
 	Return text
+EndFunction
+
+String Function OneLine(String asText)
+	{The payload is one "key|value" line per fact and "^" joins the nodes: a line break or a "^" in a perk's text
+	becomes a space.}
+	String out = asText
+	String[] bad = new String[3]
+	bad[0] = StringUtil.AsChar(10)
+	bad[1] = StringUtil.AsChar(13)
+	bad[2] = "^"
+	Int j = 0
+	While j < 3
+		If StringUtil.Find(out, bad[j]) >= 0
+			out = PapyrusUtil.StringJoin(PapyrusUtil.StringSplit(out, bad[j]), " ")
+		EndIf
+		j += 1
+	EndWhile
+	Return out
+EndFunction
+
+String Function RankSuffix(Int aiRanks)
+	{"" for the first rank; " II" to " X" after it, the number past ten.}
+	If aiRanks < 2
+		Return ""
+	EndIf
+	String[] roman = new String[11]
+	roman[2] = " II"
+	roman[3] = " III"
+	roman[4] = " IV"
+	roman[5] = " V"
+	roman[6] = " VI"
+	roman[7] = " VII"
+	roman[8] = " VIII"
+	roman[9] = " IX"
+	roman[10] = " X"
+	If aiRanks <= 10
+		Return roman[aiRanks]
+	EndIf
+	Return " " + aiRanks
+EndFunction
+
+Function AddRecent(String asSkill, String asPerk, Int aiRanks)
+	{D093: puts "Skill:Perk" in front of the last perks taken and keeps at most RecentMax.}
+	String entry = asSkill + ":" + OneLine(asPerk) + RankSuffix(aiRanks)
+	String old = StorageUtil.GetStringValue(None, RecentKey, "")
+	String joined = entry
+	If old != ""
+		joined = entry + "^" + old
+	EndIf
+	String[] parts = PapyrusUtil.StringSplit(joined, "^")
+	String out = ""
+	Int j = 0
+	While j < parts.Length && j < RecentMax
+		If j > 0
+			out += "^"
+		EndIf
+		out += parts[j]
+		j += 1
+	EndWhile
+	StorageUtil.SetStringValue(None, RecentKey, out)
+	AoT_Core.Log("[AoT] Card: recent + " + entry)
 EndFunction
 
 Function BuyPerk(Int aiSlot, Int aiIndex)
 	{A click on a node the page drew as buyable. The page decides nothing: the state
 	is read again here, and TryBuyPerk re-checks everything. The trace line carries
 	the points before and after the buy, and whether the perk is owned.}
-	If !_visible || !PerkOk() || _skills == None
+	If !_visible || !PerkOk()
 		Return
 	EndIf
 	If aiSlot < 0 || aiSlot >= _skillCount

@@ -50,6 +50,7 @@ Bool Function TryAbandon()
 	EndIf
 	Debug.Trace("[AoT-F9] emergency released " + self + " rank=" + AoT_Core.GetRank() + " points=" + AoT_Core.GetPoints())
 	_ClearState()
+	CloseObjectives()
 	MirrorStage(105)
 	Finish(0)
 	Return True

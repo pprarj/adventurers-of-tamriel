@@ -124,3 +124,4 @@ Event OnActorKilled(Actor akVictim, Actor akKiller)
 		CheckCleared()
 	EndIf
 EndEvent
+

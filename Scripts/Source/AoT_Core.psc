@@ -290,6 +290,39 @@ Int Function CardKey() Global
 	Return k
 EndFunction
 
+Int Function CardModifier() Global
+	{D093: the modifier the card key needs to OPEN the card: 0 none (default), 1 Shift, 2 Ctrl, 3 Alt.}
+	Int m = StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0)
+	If m < 0 || m > 3
+		Return 0
+	EndIf
+	Return m
+EndFunction
+
+Bool Function CardModifierHeld() Global
+	{D093: True when the modifier of CardModifier() is held, left or right; always True with none.}
+	Int m = CardModifier()
+	If m == 1
+		Return Input.IsKeyPressed(42) || Input.IsKeyPressed(54)
+	ElseIf m == 2
+		Return Input.IsKeyPressed(29) || Input.IsKeyPressed(157)
+	ElseIf m == 3
+		Return Input.IsKeyPressed(56) || Input.IsKeyPressed(184)
+	EndIf
+	Return True
+EndFunction
+
+String Function CardModifierName(Int aiMod) Global
+	If aiMod == 1
+		Return "Shift"
+	ElseIf aiMod == 2
+		Return "Ctrl"
+	ElseIf aiMod == 3
+		Return "Alt"
+	EndIf
+	Return "no modifier"
+EndFunction
+
 Float Function FeeMultiplier() Global
 	{Multiplier on the fee of every band, 0 to 3; 1.0 by default. 0 = no fee at all.}
 	Float m = StorageUtil.GetFloatValue(None, "aot_opt_fee_mult", 1.0)
@@ -471,6 +504,8 @@ Int Function OpenContract(Quest akQuest, Int aiBand) Global
 	If akQuest
 		StorageUtil.SetIntValue(akQuest, "aot_contract_id", id)
 	EndIf
+	; Fase 15 etapa 12 (D107): the abandon list's quest restarts with the new contract
+	AoT_Attendant.MarkListDirty("open id=" + id)
 	Return id
 EndFunction
 
@@ -655,5 +690,7 @@ Bool Function _Close(Int aiId, Int aiNewState) Global
 	EndIf
 	Int applied = _Apply(delta)
 	StorageUtil.IntListSet(None, "aot_contracts", aiId - 1, _Pack(aiNewState, band, applied))
+	; Fase 15 etapa 12 (D107): completed, abandoned, expired or void, the contract leaves the abandon list
+	AoT_Attendant.MarkListDirty("close id=" + aiId + " state=" + aiNewState)
 	Return True
 EndFunction

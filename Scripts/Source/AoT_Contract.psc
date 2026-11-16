@@ -119,10 +119,25 @@ Bool Function TryAbandon()
 	Bool ok = AoT_Core.AbandonContract(id)
 	Debug.Trace("[AoT-F9] AbandonContract id=" + id + " -> " + ok)
 	If ok
+		CloseObjectives()
 		MirrorStage(105)
 		Finish(id)
 	EndIf
 	Return ok
+EndFunction
+
+Function CloseObjectives()
+	{D106: an abandoned contract leaves the journal. Hiding the objective and stopping the quest left it in the
+	Miscellaneous list (D105, R1170 item 2), so the objectives are failed before the stage and the stop, the order the
+	Missives family of mods uses to give up a quest. The line reads objective 20 before and after (debug log only).}
+	String before = ObjectiveState(20)
+	FailAllObjectives()
+	AoT_Core.Log("[AoT] Contract: objectives failed on abandon, obj20 " + before + " -> " + ObjectiveState(20) + ", " + self)
+EndFunction
+
+String Function ObjectiveState(Int aiObjective)
+	{displayed/completed/failed of one objective, for the debug line.}
+	Return IsObjectiveDisplayed(aiObjective) + "/" + IsObjectiveCompleted(aiObjective) + "/" + IsObjectiveFailed(aiObjective)
 EndFunction
 
 Bool Function TryExpire()

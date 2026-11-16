@@ -224,6 +224,25 @@ Function RegisterOffer(Quest akQuest, int aiBand)
     endif
 EndFunction
 
+; -- Fase 15 etapa 1 (D089, R4-3): a contract abandoned at the attendant leaves the journal. The ledger entry is already
+; closed (state 3, out of aot_open, so the polling no longer sees it); the quest goes to its own cleanup stage 110, the
+; one Missives sets when a note expires unread. Their record is not edited; only a running quest that reached none of
+; 100, 105 or 110 is touched.
+
+Bool Function CleanUpAbandoned(int aiId)
+    Quest q = StorageUtil.GetFormValue(None, "aot_missives_q" + aiId, None) as Quest
+    if q == None
+        return false
+    endif
+    if !q.IsRunning() || q.IsStageDone(100) || q.IsStageDone(105) || q.IsStageDone(110)
+        Debug.Trace("[AoT-F15] abandon missives q=" + q + " id=" + aiId + " left as is (running=" + q.IsRunning() + ")")
+        return false
+    endif
+    bool ok = q.SetStage(110)
+    Debug.Trace("[AoT-F15] abandon missives q=" + q + " id=" + aiId + " stage110=" + ok + " running=" + q.IsRunning())
+    return ok
+EndFunction
+
 Function RegisterContractQuest(int aiId, Quest akQuest)
     {Remembers which quest a ledger id belongs to, for the polling.}
     if aiId > 0 && akQuest

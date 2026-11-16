@@ -6,6 +6,7 @@ shows the five skills of highest level. The choice lives in the save (aot_card_t
 AoT_Core.SetCardTree), never in this script.}
 
 Int[] _opt
+Bool _optReady = False
 String[] _list
 String[] _enum
 Int _listCount = 0
@@ -22,16 +23,20 @@ Int _optPts = 0
 Int _optOffers = 0
 Int _optD32 = 0
 Int _optDebug = 0
+Int _optMod = 0
 
 Event OnPageReset(String asPage)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("Guild")
 	_optKey = AddKeyMapOption("Card key", AoT_Core.CardKey())
+	_optMod = AddMenuOption("Card key modifier", ModMenuText(AoT_Core.CardModifier()))
 	_optFee = AddSliderOption("Fee multiplier", AoT_Core.FeeMultiplier(), "x{2}")
 	_optPts = AddSliderOption("Points multiplier", AoT_Core.PointsMultiplier(), "x{2}")
 	_optOffers = AddSliderOption("Contracts offered by the board", AoT_Core.BoardOffers() as Float, "{0}")
 	_optD32 = AddToggleOption("Suppress vanilla inn and steward bounties", AoT_Core.SuppressVanillaBounties())
 	_optDebug = AddToggleOption("Debug log", AoT_Core.DebugLogOn())
+	; D105: the ids SkyUI gave and the value the modifier line shows (R1170 item 1, empty value and menu); debug log only
+	AoT_Core.Log("[AoT] MCM: page reset page=" + asPage + " key=" + _optKey + " mod=" + _optMod + " dbg=" + _optDebug + " stored=" + StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0) + " modText=[" + ModMenuText(AoT_Core.CardModifier()) + "]")
 	If Lodestone.GetVersion() < 1037000
 		AddHeaderOption("Perk trees")
 		AddTextOption("Needs Lodestone 1.6.0 or newer", "", OPTION_FLAG_DISABLED)
@@ -40,6 +45,7 @@ Event OnPageReset(String asPage)
 	BuildList()
 	AddHeaderOption("Perk trees on the adventurer card")
 	_opt = new Int[5]
+	_optReady = True
 	Int slot = 0
 	While slot < AoT_Core.CardSlots()
 		_opt[slot] = AddMenuOption("Column " + (slot + 1), Shown(AoT_Core.GetCardTree(slot)))
@@ -73,8 +79,21 @@ String Function Shown(String asSkill)
 	Return asSkill
 EndFunction
 
+String Function ModMenuText(Int aiMod)
+	{D106: the modifier line and its menu show translation keys (Interface/Translations/AdventurersOfTamriel_*.txt), as
+	other SkyUI menus do; the plain strings left the line and the menu empty (R1170 item 1, twice).}
+	If aiMod == 1
+		Return "$AoT_ModShift"
+	ElseIf aiMod == 2
+		Return "$AoT_ModCtrl"
+	ElseIf aiMod == 3
+		Return "$AoT_ModAlt"
+	EndIf
+	Return "$AoT_ModOff"
+EndFunction
+
 Int Function SlotOf(Int aiOption)
-	If _opt == None
+	If !_optReady
 		Return -1
 	EndIf
 	Int slot = 0
@@ -85,6 +104,12 @@ Int Function SlotOf(Int aiOption)
 		slot += 1
 	EndWhile
 	Return -1
+EndFunction
+
+AoT_Card Function CardQuest()
+	{The card's quest. D093: it lives in the main plugin (AoT_CardQuest 0xF59) since the card plugin joined it (D080);
+	the old lookup in AdventurersOfTamriel_Card.esp found nothing, so a new key was never registered.}
+	Return Game.GetFormFromFile(0x000F59, "AdventurersOfTamriel.esp") as AoT_Card
 EndFunction
 
 Event OnOptionKeyMapChange(Int aiOption, Int aiKeyCode, String asConflictControl, String asConflictName)
@@ -101,7 +126,7 @@ Event OnOptionKeyMapChange(Int aiOption, Int aiKeyCode, String asConflictControl
 	EndIf
 	StorageUtil.SetIntValue(None, "aot_opt_card_key", aiKeyCode)
 	SetKeyMapOptionValue(aiOption, aiKeyCode)
-	AoT_Card card = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Card.esp") as AoT_Card
+	AoT_Card card = CardQuest()
 	If card
 		card.ApplyKey()
 	EndIf
@@ -162,6 +187,20 @@ Event OnOptionSelect(Int aiOption)
 EndEvent
 
 Event OnOptionMenuOpen(Int aiOption)
+	AoT_Core.Log("[AoT] MCM: menu open option=" + aiOption + " mod=" + _optMod + " slot=" + SlotOf(aiOption))
+	If aiOption == _optMod
+		String[] mods = new String[4]
+		Int m = 0
+		While m < 4
+			mods[m] = ModMenuText(m)
+			m += 1
+		EndWhile
+		AoT_Core.Log("[AoT] MCM: modifier options=[" + mods[0] + "|" + mods[1] + "|" + mods[2] + "|" + mods[3] + "] len=" + mods.Length + " start=" + AoT_Core.CardModifier())
+		SetMenuDialogOptions(mods)
+		SetMenuDialogStartIndex(AoT_Core.CardModifier())
+		SetMenuDialogDefaultIndex(0)
+		Return
+	EndIf
 	Int slot = SlotOf(aiOption)
 	If slot < 0
 		Return
@@ -187,6 +226,15 @@ Event OnOptionMenuOpen(Int aiOption)
 EndEvent
 
 Event OnOptionMenuAccept(Int aiOption, Int aiIndex)
+	AoT_Core.Log("[AoT] MCM: menu accept option=" + aiOption + " index=" + aiIndex + " mod=" + _optMod)
+	If aiOption == _optMod
+		If aiIndex >= 0 && aiIndex <= 3
+			StorageUtil.SetIntValue(None, "aot_opt_card_mod", aiIndex)
+			SetMenuOptionValue(aiOption, ModMenuText(aiIndex))
+			AoT_Core.Log("[AoT] MCM: modifier stored=" + StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0) + " text=[" + ModMenuText(aiIndex) + "]")
+		EndIf
+		Return
+	EndIf
 	Int slot = SlotOf(aiOption)
 	If slot < 0 || aiIndex < 0 || aiIndex >= _listCount
 		Return
@@ -202,10 +250,14 @@ Event OnOptionDefault(Int aiOption)
 	If aiOption == _optKey
 		StorageUtil.SetIntValue(None, "aot_opt_card_key", 65)
 		SetKeyMapOptionValue(aiOption, 65)
-		AoT_Card card = Game.GetFormFromFile(0x000800, "AdventurersOfTamriel_Card.esp") as AoT_Card
+		AoT_Card card = CardQuest()
 		If card
 			card.ApplyKey()
 		EndIf
+		Return
+	ElseIf aiOption == _optMod
+		StorageUtil.SetIntValue(None, "aot_opt_card_mod", 0)
+		SetMenuOptionValue(aiOption, ModMenuText(0))
 		Return
 	ElseIf aiOption == _optD32
 		StorageUtil.SetIntValue(None, "aot_opt_d32", 1)
@@ -228,6 +280,8 @@ EndEvent
 Event OnOptionHighlight(Int aiOption)
 	If aiOption == _optKey
 		SetInfoText("The key that opens the adventurer card. Default F7. The card opens only for guild members.")
+	ElseIf aiOption == _optMod
+		SetInfoText("A key to hold with the card key to open the card: Shift, Ctrl or Alt (left or right), or no modifier. With one chosen, the card key alone does not open it. Default: no modifier.")
 	ElseIf aiOption == _optFee
 		SetInfoText("Multiplies the fee paid at the attendant to unlock a band of contracts. 0 means no fee at all. Default 1.0.")
 	ElseIf aiOption == _optPts

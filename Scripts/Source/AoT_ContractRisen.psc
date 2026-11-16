@@ -62,3 +62,4 @@ Bool Function TryAbandon()
 	EndIf
 	Return ok
 EndFunction
+

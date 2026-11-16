@@ -15,6 +15,11 @@ Event OnInit()
 EndEvent
 
 Event OnUpdate()
+    ; Fase 15 etapa 12 (D107): a change of the abandon list refreshes its quest here, on this script's own thread
+    ; (MarkListDirty brings this update forward to now)
+    If StorageUtil.GetIntValue(None, "aot_list_dirty", 0) == 1
+        RefreshList()
+    EndIf
     EnsureAttendant()
     AoT_Hall.EnsureFixtures()
     AoT_Exam.Tick()
@@ -262,6 +267,13 @@ Bool Function TryAbandonById(Int aiId)
     EndIf
     Bool ok = AoT_Core.AbandonContract(aiId)
     AoT_Core.Log("[AoT] Attendant Abandon id=" + aiId + " ok=" + ok)
+    ; Fase 15 etapa 1 (D089, R4-3): a Missives contract leaves the journal through the quest's own cleanup stage
+    If ok
+        AoT_MissivesAdapter ma = MissivesAdapter()
+        If ma
+            ma.CleanUpAbandoned(aiId)
+        EndIf
+    EndIf
     Return ok
 EndFunction
 
@@ -363,6 +375,9 @@ Int Function _GlobalId(String asName) Global
     ElseIf asName == "hassteward"
         ; Fase 14 etapa 4 (D085): a Missives quest of the guild waits at its Steward stage (the R1 topic)
         Return 0x000F5F
+    ElseIf asName == "listready"
+        ; Fase 15 etapa 12 (D107): 1 once the abandon list's quest holds the current list (D108: its location aliases)
+        Return 0x000F62
     EndIf
     Return 0x000DA4
 EndFunction
@@ -447,18 +462,15 @@ Function SyncGlobals() Global
         o = 1
     EndIf
     _SetGlobal("open", o)
-    ; D077: open contracts, at most 4 (the abandon list has four lines), counted from the ledger
+    ; D077: open contracts, at most 4 (the abandon list has four lines), counted from the ledger.
+    ; Fase 15 etapa 1 (D089, R4-3): the count and the four slots come from the same pass (FillSlots), on every sync.
+    ; Fase 15 etapa 13 (D108): the destinations reach the list quest's location aliases (RefreshList); its topic waits.
     Int oc = 0
-    Int ln = AoT_Core.ContractCount()
-    Int li = 1
-    While li <= ln && oc < 4
-        If AoT_Core.ContractState(li) == 1
-            oc += 1
-        EndIf
-        li += 1
-    EndWhile
-    If member == 0
-        oc = 0
+    If member == 1
+        oc = FillSlots(False)
+    EndIf
+    If oc > 4
+        oc = 4
     EndIf
     _SetGlobal("opencount", oc)
     ; Fase 14 etapa 4 (D085): the report topic shows while a finished contract of ours waits (aot_to_report); the R1
@@ -521,17 +533,28 @@ Function SyncGlobals() Global
     _SetGlobal("canexam", canExam)
 EndFunction
 
-String Function ContractName(Int aiId) Global
-    {Display name of the contract with this ledger id, for the abandon list: the name of its quest, else "Contract <id>".}
-    Quest own = StorageUtil.GetFormValue(None, "aot_own_q" + aiId, None) as Quest
-    If !own
+Quest Function ContractQuest(Int aiId) Global
+    {The quest of the contract with this ledger id: ours (aot_own_q), a Missives quest of the guild (aot_missives_q,
+    Fase 15 etapa 1, D089), or the 2b quest; None for a contract without a quest.}
+    Quest q = StorageUtil.GetFormValue(None, "aot_own_q" + aiId, None) as Quest
+    If !q
+        q = StorageUtil.GetFormValue(None, "aot_missives_q" + aiId, None) as Quest
+    EndIf
+    If !q
         Quest q2b = Game.GetFormFromFile(0x000D97, "AdventurersOfTamriel.esp") as Quest
         If q2b && AoT_Core.FindOpenContract(q2b) == aiId
-            own = q2b
+            q = q2b
         EndIf
     EndIf
-    If own
-        String nm = own.GetName()
+    Return q
+EndFunction
+
+String Function ContractName(Int aiId) Global
+    {Display name of the contract with this ledger id, for the abandon list: the name of its quest, else "Contract <id>".
+    Fase 15 etapa 1 (D089): a Missives contract is named by its own quest too (it fell back to "Contract <id>").}
+    Quest q = ContractQuest(aiId)
+    If q
+        String nm = q.GetName()
         If nm != ""
             Return nm
         EndIf
@@ -539,22 +562,87 @@ String Function ContractName(Int aiId) Global
     Return "Contract " + aiId
 EndFunction
 
-Function FillSlots() Global
-    {D077: the abandon list. The up to four oldest open contracts take slots 1 to 4 (ledger id kept in aot_slot_id_K);
-    the name of each is put on a marker reference of its own and that reference fills the matching alias of
-    AoT_AttendantTalk (AoT_SlotK), whose text the topic prompt shows ("<Alias=AoT_SlotK>"). INFERRED, not
-    measured: that a display name on a marker reaches the alias text of a prompt (D077, to be confirmed in game).}
-    Quest tq = Game.GetFormFromFile(0x000DA5, "AdventurersOfTamriel.esp") as Quest
-    Int n = AoT_Core.ContractCount()
-    Int slot = 1
-    Int i = 1
-    While i <= n && slot <= 4
-        If AoT_Core.ContractState(i) == 1
-            StorageUtil.SetIntValue(None, "aot_slot_id_" + slot, i)
-            If tq
-                _PutSlotName(tq, slot, ContractName(i))
+Location Function ContractLocation(Int aiId) Global
+    {Fase 15 etapa 13 (D108): the destination of the contract with this ledger id, the name its line in the abandon list
+    shows. Ours: the contract's dungeon (alias 1 of AoT_Contract, the <Alias=Dungeon> of the note's name). Another
+    quest (Missives, the legacy 2b): its first location alias that holds a location other than a hold, else its first
+    that holds one. None when the quest has no location.}
+    Quest q = ContractQuest(aiId)
+    If !q
+        Return None
+    EndIf
+    AoT_Contract c = q as AoT_Contract
+    If c
+        Return c.DungeonLocation()
+    EndIf
+    Keyword hold = Game.GetForm(0x00016771) as Keyword
+    Location first = None
+    Int n = q.GetNumAliases()
+    Int i = 0
+    While i < n
+        LocationAlias la = q.GetNthAlias(i) as LocationAlias
+        If la && la.GetLocation()
+            If !hold || !la.GetLocation().HasKeyword(hold)
+                Return la.GetLocation()
             EndIf
-            slot += 1
+            If !first
+                first = la.GetLocation()
+            EndIf
+        EndIf
+        i += 1
+    EndWhile
+    Return first
+EndFunction
+
+String Function ContractPlace(Int aiId) Global
+    {Fase 15 etapa 13 (D108): the name of the contract's destination, "<no location>" without one (log and signature).}
+    Location loc = ContractLocation(aiId)
+    If loc
+        Return loc.GetName()
+    EndIf
+    Return "<no location>"
+EndFunction
+
+Int Function FillSlots(Bool abLog = False) Global
+    {D077: the abandon list. The up to four oldest open contracts take slots 1 to 4 (ledger id kept in aot_slot_id_K).
+    Fase 15 etapa 12 (D107): this pass writes no alias; it marks the list for RefreshList when the four ids or
+    destinations changed, or when the list quest runs without an open contract or is stopped with one. Returns every
+    open contract (a fifth and later wait for a free line).}
+    String sig = _ComputeSlots()
+    Int open = StorageUtil.GetIntValue(None, "aot_list_open", 0)
+    Quest lq = ListQuest()
+    Bool running = lq && lq.IsRunning()
+    Float busyAt = StorageUtil.GetFloatValue(None, "aot_list_busy_at", 0.0)
+    Bool busy = busyAt > 0.0 && Utility.GetCurrentGameTime() - busyAt < 0.005
+    If !busy && (sig != StorageUtil.GetStringValue(None, "aot_list_sig", "") || (open > 0) != running)
+        MarkListDirty("fill")
+    EndIf
+    If abLog
+        AoT_Core.Log("[AoT-F15] abandon list n=" + open + " " + sig)
+    EndIf
+    ; D105: what the topic list can show, every line, the empty ones too (R4-3 "Empty"); debug log only
+    If AoT_Core.DebugLogOn()
+        AoT_Core.Log("[AoT] Attendant: list shown n=" + open + " listRunning=" + running + " busy=" + busy + _ShownSlots(lq))
+    EndIf
+    Return open
+EndFunction
+
+String Function _ComputeSlots() Global
+    {Fase 15 etapa 12 (D107): writes aot_slot_id_1..4 (0 for an empty slot) and aot_list_open (every open contract);
+    returns the list's signature, "id:destination|" per filled slot (Fase 15 etapa 13, D108: the destination).}
+    Int n = AoT_Core.ContractCount()
+    Int open = 0
+    Int slot = 1
+    String sig = ""
+    Int i = 1
+    While i <= n
+        If AoT_Core.ContractState(i) == 1
+            open += 1
+            If slot <= 4
+                StorageUtil.SetIntValue(None, "aot_slot_id_" + slot, i)
+                sig += i + ":" + ContractPlace(i) + "|"
+                slot += 1
+            EndIf
         EndIf
         i += 1
     EndWhile
@@ -562,27 +650,161 @@ Function FillSlots() Global
         StorageUtil.SetIntValue(None, "aot_slot_id_" + slot, 0)
         slot += 1
     EndWhile
+    StorageUtil.SetIntValue(None, "aot_list_open", open)
+    Return sig
 EndFunction
 
-Function _PutSlotName(Quest akTalk, Int aiSlot, String asName) Global
-    ReferenceAlias al = akTalk.GetAliasById(aiSlot - 1) as ReferenceAlias
-    If !al
-        AoT_Core.Log("[AoT] Attendant: alias slot " + aiSlot + " missing on the talk quest")
+Quest Function ListQuest() Global
+    {Fase 15 etapa 12 (D107): AoT_AttendantList, the quest of the abandon list's topics (AoT_AttDrop*).}
+    Return Game.GetFormFromFile(0x000F67, "AdventurersOfTamriel.esp") as Quest
+EndFunction
+
+LocationAlias Function _SlotAlias(Quest akList, Int aiSlot) Global
+    {Fase 15 etapa 13 (D108): slot K of the list is the location alias AoT_LocK, alias id 4 + K.}
+    If !akList
+        Return None
+    EndIf
+    Return akList.GetAliasById(4 + aiSlot) as LocationAlias
+EndFunction
+
+Function MarkListDirty(String asWhy) Global
+    {Fase 15 etapa 12 (D107): the abandon list changed (a contract opened or closed in the ledger, or FillSlots saw
+    other ids or destinations). The attendant quest refreshes the list quest on its next update, brought forward to now.}
+    StorageUtil.SetIntValue(None, "aot_list_dirty", 1)
+    StorageUtil.SetStringValue(None, "aot_list_why", asWhy)
+    AoT_Attendant a = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as AoT_Attendant
+    If a
+        a.RegisterForSingleUpdate(0.2)
+    EndIf
+    AoT_Core.Log("[AoT-F15e12] list marked why=" + asWhy)
+EndFunction
+
+Function RefreshList() Global
+    {Fase 15 etapa 13 (D108): puts the current list in AoT_AttendantList. The quest runs while a contract is open; slot
+    K is its location alias AoT_LocK, forced to the contract's destination with ForceLocationTo while the quest runs,
+    and the prompt <Alias=AoT_LocK> shows that location's name. Same order as Skyrim.esm: MQ302 runs, its stage 40
+    starts MQ302FillAliases, which forces MQ302's location aliases (Optional, Allow Reuse, Stores Text, Allow Reserved),
+    and MQ302's prompts read them ("How about <Alias=SonsMajorHoldCapital>?"). An empty slot is cleared; with no
+    contract the quest stops. A quest still running with the etapa 12 aliases is restarted once, and the etapa 11/12
+    slot markers are deleted. Runs on the attendant quest's update; a change during the refresh runs it again (three
+    passes at most).}
+    Quest lq = ListQuest()
+    If !lq
+        Debug.Trace("[AoT] Attendant: list quest not found")
         Return
     EndIf
-    String slotKey = "aot_slot_ref_" + aiSlot
-    ObjectReference r = StorageUtil.GetFormValue(None, slotKey, None) as ObjectReference
-    If !r
-        Form marker = Game.GetForm(0x0000003B)
-        r = Game.GetPlayer().PlaceAtMe(marker, 1, True)
-        If !r
-            AoT_Core.Log("[AoT] Attendant: no marker for slot " + aiSlot)
-            Return
+    Int pass = 0
+    While pass < 3 && (pass == 0 || StorageUtil.GetIntValue(None, "aot_list_dirty", 0) == 1)
+        pass += 1
+        StorageUtil.SetIntValue(None, "aot_list_dirty", 0)
+        StorageUtil.SetFloatValue(None, "aot_list_busy_at", Utility.GetCurrentGameTime())
+        _SetGlobal("listready", 0)
+        String sig = _ComputeSlots()
+        Int open = StorageUtil.GetIntValue(None, "aot_list_open", 0)
+        Bool was = lq.IsRunning()
+        Bool oldLayout = StorageUtil.GetIntValue(None, "aot_list_layout", 0) != 13
+        If oldLayout
+            _DropOldMarkers()
         EndIf
-        StorageUtil.SetFormValue(None, slotKey, r)
+        If was && (open == 0 || oldLayout)
+            lq.Stop()
+            Int w = 0
+            While lq.IsRunning() && w < 50
+                Utility.Wait(0.1)
+                w += 1
+            EndWhile
+        EndIf
+        StorageUtil.SetIntValue(None, "aot_list_layout", 13)
+        Bool started = False
+        If open > 0 && !lq.IsRunning()
+            started = lq.Start()
+            Int s = 0
+            While !lq.IsRunning() && s < 50
+                Utility.Wait(0.1)
+                s += 1
+            EndWhile
+        EndIf
+        String line = ""
+        Int k = 1
+        While k <= 4
+            LocationAlias la = _SlotAlias(lq, k)
+            Int id = StorageUtil.GetIntValue(None, "aot_slot_id_" + k, 0)
+            Location loc = None
+            If id > 0
+                loc = ContractLocation(id)
+            EndIf
+            If !la
+                line += " slot" + k + "=" + id + ":<no alias>"
+            ElseIf loc && lq.IsRunning()
+                la.ForceLocationTo(loc)
+                line += " slot" + k + "=" + id + ":" + loc.GetName()
+            Else
+                la.Clear()
+                If id > 0
+                    line += " slot" + k + "=" + id + ":<no location>"
+                Else
+                    line += " slot" + k + "=0:<empty>"
+                EndIf
+            EndIf
+            k += 1
+        EndWhile
+        StorageUtil.SetStringValue(None, "aot_list_sig", sig)
+        If open > 0 && lq.IsRunning()
+            _SetGlobal("listready", 1)
+        EndIf
+        AoT_Core.Log("[AoT-F15e13] list refresh pass=" + pass + " why=" + StorageUtil.GetStringValue(None, "aot_list_why", "") + " wasRunning=" + was + " oldLayout=" + oldLayout + " started=" + started + " running=" + lq.IsRunning() + " n=" + open + " forced:" + line)
+        AoT_Core.Log("[AoT-F15e13] list refresh pass=" + pass + " read back:" + _ShownSlots(lq))
+    EndWhile
+    StorageUtil.SetFloatValue(None, "aot_list_busy_at", 0.0)
+EndFunction
+
+Function _DropOldMarkers() Global
+    {Fase 15 etapa 13 (D108): the etapa 11/12 slot markers (persistent XMarkers kept under aot_slot_ref_K) are no
+    longer used; each is deleted once and its key unset.}
+    Int k = 1
+    While k <= 4
+        ObjectReference r = StorageUtil.GetFormValue(None, "aot_slot_ref_" + k, None) as ObjectReference
+        If r
+            r.Disable()
+            r.Delete()
+        EndIf
+        StorageUtil.UnsetFormValue(None, "aot_slot_ref_" + k)
+        k += 1
+    EndWhile
+EndFunction
+
+String Function _ShownSlots(Quest akList) Global
+    {D105: per slot, the ledger id kept and what the slot's alias holds ("<empty>" with nothing).
+    Fase 15 etapa 13 (D108): the slots are the location aliases AoT_Loc1..4 (alias ids 5 to 8); read back by
+    GetLocation and the location's name.}
+    String line = ""
+    Int k = 1
+    While k <= 4
+        String shown = "<no list quest>"
+        If akList
+            shown = "<empty>"
+            LocationAlias la = _SlotAlias(akList, k)
+            If !la
+                shown = "<no alias>"
+            ElseIf la.GetLocation()
+                shown = la.GetLocation().GetName()
+            EndIf
+        EndIf
+        line += " slot" + k + "=" + StorageUtil.GetIntValue(None, "aot_slot_id_" + k, 0) + ":" + shown
+        k += 1
+    EndWhile
+    Return line
+EndFunction
+
+Function _LogAtSpeech(String asWhat) Global
+    {Fase 15 etapa 12 (D107): at a line of the abandon list, whether the list quest runs and what its aliases hold.}
+    Quest lq = ListQuest()
+    Int ready = -1
+    GlobalVariable g = Game.GetFormFromFile(0x000F62, "AdventurersOfTamriel.esp") as GlobalVariable
+    If g
+        ready = g.GetValueInt()
     EndIf
-    r.SetDisplayName(asName, True)
-    al.ForceRefTo(r)
+    AoT_Core.Log("[AoT-F15e13] at speech " + asWhat + " listRunning=" + (lq && lq.IsRunning()) + " ready=" + ready + _ShownSlots(lq))
 EndFunction
 
 AoT_MissivesAdapter Function MissivesAdapter() Global
@@ -705,9 +927,13 @@ Function RunAction(Int aiAction, Int aiBand) Global
         Int sn = DeliverAtSteward()
         AoT_Core.Log("[AoT] Attendant: steward delivered=" + sn + " points " + sp + " -> " + AoT_Core.GetPoints())
     ElseIf aiAction == 10 || aiAction == 11
-        ; open the abandon list / greet: the slot names are filled before the topic menu is built
+        ; open the abandon list / greet (Fase 15 etapa 1, D089: SyncGlobals fills the slots too; action 10 writes the
+        ; list to the log). Fase 15 etapa 12 (D107): a change found here refreshes the list quest (FillSlots, RefreshList)
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
-        FillSlots()
+        If aiAction == 10
+            _LogAtSpeech("open")
+        EndIf
+        FillSlots(aiAction == 10)
     ElseIf aiAction == 12
         ; "Yes, abandon it.": the ledger id kept for the picked slot, abandoned only while still open
         Int pick = StorageUtil.GetIntValue(None, "aot_abandon_pick", 0)
@@ -716,17 +942,24 @@ Function RunAction(Int aiAction, Int aiBand) Global
             aid = StorageUtil.GetIntValue(None, "aot_slot_id_" + pick, 0)
         EndIf
         If aid > 0 && a && AoT_Core.ContractState(aid) == 1
+            Quest cq = ContractQuest(aid)
+            String cn = ContractName(aid)
             Bool gone = a.TryAbandonById(aid)
             AoT_Core.Log("[AoT] Attendant: abandon slot " + pick + " id " + aid + " ok=" + gone)
+            AoT_Core.Log("[AoT-F15] abandon done q=" + cq + " id=" + aid + " name=" + cn + " ok=" + gone + " state=" + AoT_Core.ContractState(aid) + " points=" + AoT_Core.GetPoints())
         Else
             AoT_Core.Log("[AoT] Attendant: abandon pick " + pick + " is not an open contract")
+            AoT_Core.Log("[AoT-F15] abandon refused pick=" + pick + " id=" + aid)
         EndIf
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
     ElseIf aiAction == 13
+        AoT_Core.Log("[AoT-F15] abandon kept pick=" + StorageUtil.GetIntValue(None, "aot_abandon_pick", 0))
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
     ElseIf aiAction >= 21 && aiAction <= 24
         ; a line of the abandon list was picked: remember which slot until the player confirms or refuses
         StorageUtil.SetIntValue(None, "aot_abandon_pick", aiAction - 20)
+        AoT_Core.Log("[AoT-F15] abandon pick slot=" + (aiAction - 20) + " id=" + StorageUtil.GetIntValue(None, "aot_slot_id_" + (aiAction - 20), 0))
+        _LogAtSpeech("pick " + (aiAction - 20))
     ElseIf aiAction == 30
         ; test surface (D083): take a note of the hall board to the player, kind in aiBand (0 ours, 1 Missives, 2 Missives with a Steward)
         AoT_GuildBoardAlias ba = AoT_ContractsCtl.Get().GetAlias(0) as AoT_GuildBoardAlias
