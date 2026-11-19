@@ -15,6 +15,27 @@ Event OnConfigInit()
 	ModName = "Adventurers of Tamriel"
 EndEvent
 
+Event OnGameReload()
+	{D116: the MCM quest hears every load (SKI_QuestBase). The DLC places the contracts must not use (contracts.json) are
+	added to the forbidden list here too, so a pack installed while the game was off is covered at once.}
+	parent.OnGameReload()
+	; D121: before any hall loads, the attendant and the examiner leave the Real Names - Extended renaming
+	AoT_Hall.ExcludeFromRealNames()
+	; D121: and a name Real Names already picked for the 18 refs is given back (a new game, or the first load with 1.2)
+	AoT_Hall.RestoreAllRealNames()
+	; D117: a missing PapyrusUtil or table of halls is said once per load
+	AoT_Attendant att = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as AoT_Attendant
+	If att
+		att.NewLoad()
+	EndIf
+	AoT_ContractsCtl ctl = AoT_ContractsCtl.Get()
+	If ctl
+		ctl.EnsureForbidden()
+	EndIf
+	; D124: the global of the hall murmur follows the stored switch (a save from before 1.2 has no switch: on)
+	AoT_Core.SyncHallSound()
+EndEvent
+
 ; D077 (Fase 14 etapa 1): the six options of the guild. Values live in the save (AoT_Core reads them at the moment
 ; of use, nothing is copied here); defaults: card key F7, fee x1.0, points x1.0, 5 offers, D-32 on, debug log off.
 Int _optKey = 0
@@ -24,6 +45,7 @@ Int _optOffers = 0
 Int _optD32 = 0
 Int _optDebug = 0
 Int _optMod = 0
+Int _optSound = 0
 
 Event OnPageReset(String asPage)
 	SetCursorFillMode(TOP_TO_BOTTOM)
@@ -34,6 +56,8 @@ Event OnPageReset(String asPage)
 	_optPts = AddSliderOption("Points multiplier", AoT_Core.PointsMultiplier(), "x{2}")
 	_optOffers = AddSliderOption("Contracts offered by the board", AoT_Core.BoardOffers() as Float, "{0}")
 	_optD32 = AddToggleOption("Suppress vanilla inn and steward bounties", AoT_Core.SuppressVanillaBounties())
+	; D124: label by translation key, as the modifier values (D106)
+	_optSound = AddToggleOption("$AoT_HallSound", AoT_Core.HallSoundOn())
 	_optDebug = AddToggleOption("Debug log", AoT_Core.DebugLogOn())
 	; D105: the ids SkyUI gave and the value the modifier line shows (R1170 item 1, empty value and menu); debug log only
 	AoT_Core.Log("[AoT] MCM: page reset page=" + asPage + " key=" + _optKey + " mod=" + _optMod + " dbg=" + _optDebug + " stored=" + StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0) + " modText=[" + ModMenuText(AoT_Core.CardModifier()) + "]")
@@ -175,6 +199,15 @@ Event OnOptionSelect(Int aiOption)
 		EndIf
 		AoT_Core.SyncD32()
 		SetToggleOptionValue(aiOption, on)
+	ElseIf aiOption == _optSound
+		Bool snd = !AoT_Core.HallSoundOn()
+		If snd
+			StorageUtil.SetIntValue(None, "aot_opt_hall_sound", 1)
+		Else
+			StorageUtil.SetIntValue(None, "aot_opt_hall_sound", 0)
+		EndIf
+		SetToggleOptionValue(aiOption, snd)
+		AoT_Core.SyncHallSound(True)
 	ElseIf aiOption == _optDebug
 		Bool dbg = !AoT_Core.DebugLogOn()
 		If dbg
@@ -264,6 +297,11 @@ Event OnOptionDefault(Int aiOption)
 		AoT_Core.SyncD32()
 		SetToggleOptionValue(aiOption, True)
 		Return
+	ElseIf aiOption == _optSound
+		StorageUtil.SetIntValue(None, "aot_opt_hall_sound", 1)
+		SetToggleOptionValue(aiOption, True)
+		AoT_Core.SyncHallSound(True)
+		Return
 	ElseIf aiOption == _optDebug
 		StorageUtil.SetIntValue(None, "aot_opt_debug", 0)
 		SetToggleOptionValue(aiOption, False)
@@ -290,6 +328,8 @@ Event OnOptionHighlight(Int aiOption)
 		SetInfoText("How many contracts the board offers at each refresh, 3 to 15. Default 5.")
 	ElseIf aiOption == _optD32
 		SetInfoText("Hides the vanilla bounty and steward quests the guild replaces. Default on. With it on, stewards and innkeepers do not offer them.")
+	ElseIf aiOption == _optSound
+		SetInfoText("The murmur of people talking in the guild halls. Default on. The tavern music of the halls is the game's own and follows the game's music volume.")
 	ElseIf aiOption == _optDebug
 		SetInfoText("Writes the guild's informational lines to the Papyrus log. Errors are always written. Default off.")
 	EndIf

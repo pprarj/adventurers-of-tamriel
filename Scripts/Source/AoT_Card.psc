@@ -33,6 +33,17 @@ Int Property PerkMinVersion       = 1037000 AutoReadOnly
 ; 1044000 (1.44.0) adds GetPerkTreeOffsetX / GetPerkTreeOffsetY (the node's fine position, HNAM / VNAM). Below it the
 ; card draws on the integer grid alone (D094).
 Int Property OffsetMinVersion     = 1044000 AutoReadOnly
+; 1049000 (1.49.0) adds CapturePlayerPortrait (D116). Below it the portrait stays the silhouette, with no message.
+Int Property PortraitMinVersion   = 1049000 AutoReadOnly
+; The folder of the page under Data\PrismaUI\views\ and Data\Magelight\ (the view path without the file), and the
+; side of the PNG. The native returns the file name; the page loads it relative to itself.
+String Property PortraitFolder    = "AdventurersOfTamriel" AutoReadOnly
+Int Property PortraitSize         = 256 AutoReadOnly
+; D134: the native refuses a capture whose head is turned from the camera (about 0.6 s for one refusal). A refused
+; capture is asked again at most PortraitRetries more times, only while the card is still opening, and only when the
+; next try, as long as the last one, ends within PortraitBudget seconds of the key press: the card shows in 2 s.
+Int Property PortraitRetries      = 2 AutoReadOnly
+Float Property PortraitBudget     = 1.9 AutoReadOnly
 
 ; DirectX scan code of the hotkey: the settings page writes it (D077), AoT_Core.CardKey() reads it at the
 ; moment of use; 65 (F7) is the default. _regKey is the key registered now, 0 in a save made before the option.
@@ -58,6 +69,15 @@ Bool _awaitingHello = False
 ; D103: True once the payload of this opening left. A "ready" before it is the page's own hello at load, which can
 ; overtake the payload while BuildPayload runs; trees pushed then were wiped by the payload that came after them.
 Bool _payloadSent   = False
+; D116: the file name the native returned for THIS opening; sent in the payload, then cleared (never kept in the save).
+String _portrait = ""
+; D134: the last file a capture of this card wrote, and the real time of that capture. The native deletes a file only
+; at the NEXT good capture to the folder, so a refused one can send this one instead. A save keeps both; a stamp later
+; than the clock is another boot, where the native may have swept the file or reused the name, and it is not sent.
+String _lastPortrait = ""
+Float _lastPortraitAt = 0.0
+; D134: real time of the card key press that is opening the card; the retry budget counts from it. 0.0 = no key.
+Float _keyAt = 0.0
 
 ; The skills drawn right now, one per column, filled at every opening. A buy
 ; click names a column and a node index; the index is only meaningful against
@@ -100,6 +120,7 @@ Function ApplyKey()
 EndFunction
 
 Event OnKeyDown(Int aiKeyCode)
+	Float keyAt = Utility.GetCurrentRealTime()
 	; Always on: only the card key and Esc are registered, so this fires on those presses only.
 	Debug.Trace("[AoT] Card: OnKeyDown code=" + aiKeyCode + " cardKey=" + AoT_Core.CardKey() + " visible=" + _visible + " member=" + AoT_Core.IsMember())
 	If aiKeyCode == EscCode
@@ -137,6 +158,7 @@ Event OnKeyDown(Int aiKeyCode)
 		Debug.Notification("You are not a member of the Adventurers Guild.")
 		Return
 	EndIf
+	_keyAt = keyAt
 	OpenCard()
 EndEvent
 
@@ -221,14 +243,81 @@ Function OpenNow()
 	_awaitingHello = True
 	_payloadSent = False
 	RegisterForSingleUpdate(HelloSeconds)
+	; D116: the capture comes BEFORE the show and the focus: the native refuses a pausing menu, and a focused view may
+	; read as one. It is latent (a few frames), so the card may be closed (Esc) while it runs.
+	CapturePortrait()
+	If !_awaitingHello
+		_portrait = ""
+		Return
+	EndIf
 	Lodestone.WebUIShow(ViewId)
 	_visible = True
 	Push()
 EndFunction
 
+Function CapturePortrait()
+	{Asks the native for a front portrait of the player. "" (first person, a menu, one already in flight, an old DLL)
+	is asked again within the budget (D134); still "", the last good file of this boot goes instead, and without one
+	the payload carries an empty c_portrait and the page draws the silhouette. No message to the player.}
+	_portrait = ""
+	Float t0 = Utility.GetCurrentRealTime()
+	; The budget counts from the key press; an opening with no fresh key press (a direct OpenCard) counts from here.
+	Float start = _keyAt
+	_keyAt = 0.0
+	If start <= 0.0 || start > t0 || t0 - start > HelloSeconds
+		start = t0
+	EndIf
+	Int attempts = 0
+	Bool closed = False
+	If Lodestone.GetVersion() >= PortraitMinVersion
+		Bool again = True
+		While again
+			Float a0 = Utility.GetCurrentRealTime()
+			_portrait = Lodestone.CapturePlayerPortrait(PortraitFolder, PortraitSize)
+			attempts += 1
+			Float now = Utility.GetCurrentRealTime()
+			again = False
+			If _portrait == ""
+				If !_awaitingHello
+					closed = True
+				ElseIf attempts <= PortraitRetries && (now - start) + (now - a0) <= PortraitBudget
+					again = True
+				EndIf
+			EndIf
+		EndWhile
+	EndIf
+	String shown
+	If _portrait != ""
+		shown = _portrait
+		_lastPortrait = _portrait
+		_lastPortraitAt = Utility.GetCurrentRealTime()
+	ElseIf _lastPortrait != "" && _lastPortraitAt <= t0
+		_portrait = _lastPortrait
+		shown = "previous " + _lastPortrait
+	Else
+		shown = "refused"
+	EndIf
+	If closed
+		shown += " closed"
+	EndIf
+	; Always on, like the key lines: it is the line the bench reads. One per opening.
+	Debug.Trace("[AoT] Card: portrait " + shown + " attempts=" + attempts + " in " + (Utility.GetCurrentRealTime() - t0) + " s since key " + (Utility.GetCurrentRealTime() - start) + " s")
+EndFunction
+
+Function PollMissives()
+	{D116: the open Missives contracts are read now, not at the next hourly poll, so a delivery just done does not show as
+	in progress. Soft: without the Missives plugin there is no adapter and nothing changes.}
+	AoT_MissivesAdapter ma = AoT_Attendant.MissivesAdapter()
+	If ma
+		ma.PollOpenContracts()
+	EndIf
+EndFunction
+
 Function Push()
+	PollMissives()
 	AoT_Core.Log("[AoT] Card: push rank=" + RankLetter(AoT_Core.GetRank()) + " points=" + AoT_Core.GetPoints())
 	String payload = BuildPayload()
+	_portrait = ""
 	Lodestone.WebUICall(ViewId, FnCard, payload)
 	_payloadSent = True
 EndFunction
@@ -412,7 +501,14 @@ String Function BuildPayload()
 	String text = "c_name|" + Game.GetPlayer().GetDisplayName() + eol
 	text += "hotkey|" + BrowserKeyCode(AoT_Core.CardKey()) + eol
 	text += "c_level|" + Game.GetPlayer().GetLevel() + eol
+	; D116: always sent, empty when there is no picture: the page goes back to the silhouette
+	text += "c_portrait|" + _portrait + eol
 	text += "c_joined|" + AoT_Core.JoinedDay() + eol
+	; Fase 16 etapa 5 (D113): the hold of the first hall; absent until a talk with an attendant has stamped it
+	String joinHold = StorageUtil.GetStringValue(None, "aot_join_hold", "")
+	If joinHold != ""
+		text += "c_hold|" + joinHold + eol
+	EndIf
 	If PerkOk()
 		text += "c_perkok|1" + eol
 		text += "c_pp|" + PerkPoints() + eol

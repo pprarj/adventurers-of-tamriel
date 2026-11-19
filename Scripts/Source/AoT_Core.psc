@@ -388,6 +388,47 @@ Function SyncD32() Global
 	EndIf
 EndFunction
 
+Bool Function HallSoundOn() Global
+	{D124: the murmur of people talking in the halls, on by default. Stored by the settings page; SyncHallSound copies
+	it to AoT_HallSoundOn.}
+	Return StorageUtil.GetIntValue(None, "aot_opt_hall_sound", 1) != 0
+EndFunction
+
+Function SyncHallSound(Bool abRestart = False) Global
+	{D124: the murmur's sound descriptor (AoT_HallCrowdLPSD, main plugin 0xF69) plays only while the global
+	AoT_HallSoundOn (0xF68, 1 by default) is 1, the condition of the descriptor. The engine reads that condition when the
+	marker starts, so with abRestart the marker of the hall the player stands in (a ref of AoT_HallCrowdLP 0xF6A, the
+	closest within 4096 units; every hall has one) is disabled and enabled again once the menu is closed.}
+	GlobalVariable g = Game.GetFormFromFile(0x000F68, "AdventurersOfTamriel.esp") as GlobalVariable
+	If !g
+		Return
+	EndIf
+	Float v = 0.0
+	If HallSoundOn()
+		v = 1.0
+	EndIf
+	If g.GetValue() != v
+		g.SetValue(v)
+		Log("[AoT] hall sound: AoT_HallSoundOn -> " + v)
+	EndIf
+	If !abRestart
+		Return
+	EndIf
+	Form base = Game.GetFormFromFile(0x000F6A, "AdventurersOfTamriel.esp")
+	ObjectReference m = None
+	If base
+		m = Game.FindClosestReferenceOfTypeFromRef(base, Game.GetPlayer(), 4096.0)
+	EndIf
+	If !m
+		Log("[AoT] hall sound: no marker near the player, AoT_HallSoundOn=" + v)
+		Return
+	EndIf
+	m.DisableNoWait()
+	Utility.Wait(0.5)
+	m.EnableNoWait()
+	Log("[AoT] hall sound: marker " + m + " restarted, AoT_HallSoundOn=" + g.GetValue())
+EndFunction
+
 Bool Function DebugLogOn() Global
 	{Off by default: the guild's informational lines go to the Papyrus log only when this is on.}
 	Return StorageUtil.GetIntValue(None, "aot_opt_debug", 0) != 0

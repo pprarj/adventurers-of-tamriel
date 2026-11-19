@@ -3,7 +3,7 @@
 An adventurers' guild for Skyrim: a branch of the guild in every hold, a board of ranked contracts from F to S, and
 promotion earned through points and proof.
 
-**Status: released.** Version 1.1.0 is on Nexus Mods:
+**Status: released.** Version 1.2.0 is on Nexus Mods:
 https://www.nexusmods.com/skyrimspecialedition/mods/194936
 
 ## What the mod does
@@ -23,7 +23,7 @@ What the base mod needs, from the scripts it contains:
 - SKSE
 - PapyrusUtil SE (the saved state and the tables)
 - powerofthree's Papyrus Extender (the contracts that ask you to clear a place)
-- Lodestone 1.10.0 or newer (the adventurer card and the perk purchase go through it)
+- Lodestone 1.11.0 or newer (the adventurer card and the perk purchase go through it)
 - Prisma UI (the card's panel; Magelight UI is the secondary backend)
 - SkyUI (the settings page)
 
@@ -36,6 +36,12 @@ The Missives, Headhunter and Monster Hunt Missives adapters are optional, one ea
 
 A small read-only interface (your rank, any guild member's rank, the points) is documented and versioned in
 [DEVELOPMENT.md](DEVELOPMENT.md#public-contract-for-other-mods-version-10).
+
+## Credits
+
+- The murmur of people talking in the guild halls is "Crowd_Talking" by ken788 (Freesound), CC0, via Pixabay, cut
+  into a loop.
+- The music of the halls is the game's own tavern music.
 
 ## License
 

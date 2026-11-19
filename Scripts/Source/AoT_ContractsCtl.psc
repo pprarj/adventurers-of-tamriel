@@ -56,3 +56,24 @@ Function SetBoard(ObjectReference akBoard)
 	EndIf
 	akBoard.BlockActivation(True)
 EndFunction
+
+Function SetMissBoard(ObjectReference akBoard)
+	{Fase 16 etapa 13 (D123): with Missives installed the hall has two boards; the Missives board the player is near goes
+	into alias 1 (MissivesBoard), blocked as alias 0 is, so its offers run before its container opens. None clears it.}
+	ReferenceAlias a = GetAlias(1) as ReferenceAlias
+	If !a
+		Return
+	EndIf
+	If !akBoard
+		If a.GetReference()
+			a.Clear()
+			Debug.Trace("[AoT-F16] missives board alias cleared")
+		EndIf
+		Return
+	EndIf
+	If a.GetReference() != akBoard
+		a.ForceRefTo(akBoard)
+		Debug.Trace("[AoT-F16] missives board alias -> " + akBoard)
+	EndIf
+	akBoard.BlockActivation(True)
+EndFunction

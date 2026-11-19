@@ -23,6 +23,9 @@ FormList Property OurVeryHigh Auto
 FormList Property OurSituation Auto
 FormList Property OurEmergency Auto
 Container Property BoardBase Auto
+; Fase 16 etapa 13 (D123): alias 1 (MissivesSide) is the Missives board of the hall and offers only the Missives lists;
+; alias 0 is our board and offers only ours (situation, contracts, emergency)
+Bool Property MissivesSide = False Auto
 
 FormList MissLow
 FormList MissMed
@@ -186,7 +189,7 @@ Function Refresh(ObjectReference akBoard)
 	StorageUtil.SetFloatValue(akBoard, "aot_board_day", Utility.GetCurrentGameTime())
 	StorageUtil.SetIntValue(akBoard, "aot_board_epoch", StorageUtil.GetIntValue(None, "aot_board_epoch", 0))
 	Int hall = AoT_Exam.HallIndexOfPlayer()
-	Debug.Trace("[AoT-F9] board refresh " + akBoard + " hall=" + hall + " rank=" + AoT_Core.GetRank() + " missives=" + ResolveMissives(hall))
+	Debug.Trace("[AoT-F9] board refresh " + akBoard + " hall=" + hall + " rank=" + AoT_Core.GetRank() + " missives=" + ResolveMissives(hall) + " side=" + MissivesSide)
 	_offered = new Quest[64]
 	_nOffered = 0
 	_failed = new Quest[64]
@@ -195,13 +198,17 @@ Function Refresh(ObjectReference akBoard)
 	_retired = new Quest[64]
 	_nRetired = 0
 	LoadMissSkip()
-	RetireOwn(akBoard)
-	OfferSituation(akBoard, hall)
-	OfferContracts(akBoard, hall)
-	OfferMissives(akBoard, hall)
-	; conserto 1 da etapa 2 (D083): an untaken Missives offer still shown stays (OfferMissives keeps it); only the rest leaves
-	RetireMissives(akBoard)
-	OfferEmergency(akBoard, hall)
+	If MissivesSide
+		; Fase 16 etapa 13 (D123): the Missives board shows the Missives lists of its hold (D048), nothing of ours
+		OfferMissives(akBoard, hall)
+		; conserto 1 da etapa 2 (D083): an untaken Missives offer still shown stays (OfferMissives keeps it); only the rest leaves
+		RetireMissives(akBoard)
+	Else
+		RetireOwn(akBoard)
+		OfferSituation(akBoard, hall)
+		OfferContracts(akBoard, hall)
+		OfferEmergency(akBoard, hall)
+	EndIf
 	Debug.Trace("[AoT-F9] board done " + akBoard + " offered=" + _nOffered + " failed=" + _nFailed + " items=" + akBoard.GetNumItems())
 EndFunction
 

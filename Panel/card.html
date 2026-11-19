@@ -34,7 +34,9 @@
   external request (the two fonts sit in ./fonts, see OFL.txt there). The finish: flat cream, one brown ink, a
   double frame with cut corners and a running-key band at top and bottom (inline SVG, our own motif); the only red
   is the star that can be taken now (the wax seal left in 1.1.0, D106). The rank is read in STANDING only (D107):
-  the right of the header holds the tokens alone.
+  the right of the header holds the crest of the hold where the player joined (c_hold, D113; ./crest/<file>.png,
+  256 px, drawn at 168) above the tokens. Without c_hold the place stays empty: no emblem is invented.
+  The TAKEN stamp on the margin reads the state of the picked perk, so it is there after a tab switch or a reopening.
 -->
 <style>
   @font-face { font-family: "AoT Cinzel"; font-weight: 400; src: url("fonts/cinzel-latin-500-normal.woff2") format("woff2"); }
@@ -69,7 +71,10 @@
   .flabel { position:absolute; left:0; top:2px; font-size:11px; letter-spacing:3px; }
   .fval { position:absolute; left:0; bottom:3px; font-size:20px; font-style:italic; white-space:nowrap; overflow:hidden; width:100%; }
   #name { font-family:"AoT Cinzel", Georgia, serif; font-style:normal; font-weight:700; font-size:26px; bottom:1px; }
-  #fichas { right:40px; width:184px; top:238px; text-align:center; font-size:12px; font-style:italic; line-height:16px; }
+  #crestbox { left:820px; top:110px; width:260px; text-align:center; }
+  #crest { display:none; width:168px; height:168px; margin:0 auto; }
+  #crestname { margin-top:3px; font-size:12px; font-style:italic; line-height:14px; }
+  #fichas { left:820px; width:260px; top:300px; text-align:center; font-size:12px; font-style:italic; line-height:16px; }
   #prog { left:304px; top:276px; width:500px; font-size:14px; }
   #barwrap { margin-top:5px; width:500px; height:10px; box-sizing:border-box; border:1px solid #4a3220; }
   #bar { height:8px; width:0; background-image:repeating-linear-gradient(135deg, #4a3220 0, #4a3220 2px, rgba(74,50,32,0) 2px, rgba(74,50,32,0) 6px); }
@@ -161,9 +166,15 @@
         <pattern id="key" x="0" y="0" width="16" height="12" patternUnits="userSpaceOnUse">
           <path d="M0 11 H3 V1 H13 V8 H7 V5 H10 M13 11 H16" fill="none" stroke="#4a3220" stroke-width="1.3"/>
         </pattern>
+        <!-- D116: the aged paper, variant c of the Fase 16 etapa 5 proposal: two SVG noise filters and a warm rim; no tear -->
+        <clipPath id="paperclip"><polygon points="24,0 1096,0 1120,24 1120,756 1096,780 24,780 0,756 0,24"/></clipPath>
+        <radialGradient id="vig" cx="0.5" cy="0.5" r="0.72"><stop offset="0.55" stop-color="#7a4f1c" stop-opacity="0"/><stop offset="1" stop-color="#7a4f1c" stop-opacity="0.34"/></radialGradient>
+        <filter id="grain" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="0.9 0.35" numOctaves="3" seed="4" result="n"/><feColorMatrix in="n" values="0 0 0 0 0.43  0 0 0 0 0.29  0 0 0 0 0.12  0 0 0 0.55 -0.16"/></filter>
+        <filter id="blot" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves="3" seed="9" result="n"/><feColorMatrix in="n" values="0 0 0 0 0.5  0 0 0 0 0.33  0 0 0 0 0.13  0 0 0 1.1 -0.38"/></filter>
       </defs>
       <polygon points="24,12 1096,12 1120,36 1120,768 1096,792 24,792 0,768 0,36" fill="rgba(0,0,0,0.45)"/>
       <polygon points="24,0 1096,0 1120,24 1120,756 1096,780 24,780 0,756 0,24" fill="#dcc590"/>
+      <g clip-path="url(#paperclip)"><rect x="0" y="0" width="1120" height="780" filter="url(#blot)"/><rect x="0" y="0" width="1120" height="780" filter="url(#grain)"/><rect x="0" y="0" width="1120" height="780" fill="url(#vig)"/></g>
       <polygon points="27,7 1093,7 1113,27 1113,753 1093,773 27,773 7,753 7,27" fill="none" stroke="#4a3220" stroke-width="2"/>
       <polygon points="29,12 1091,12 1108,29 1108,751 1091,768 29,768 12,751 12,29" fill="none" stroke="#4a3220" stroke-width="0.8"/>
       <line x1="40" y1="20" x2="1080" y2="20" stroke="#4a3220" stroke-width="0.8"/>
@@ -185,7 +196,8 @@
       <div class="mount" style="left:-5px;bottom:-5px;border-left-width:3px;border-bottom-width:3px"></div>
       <div class="mount" style="right:-5px;bottom:-5px;border-right-width:3px;border-bottom-width:3px"></div>
       <div id="portrait">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#4a3220" stroke-width="0.8"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg>
+        <img id="portraitimg" alt="" style="display:none">
+        <svg id="psil" viewBox="0 0 24 24" fill="none" stroke="#4a3220" stroke-width="0.8"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg>
       </div>
     </div>
     <div id="fields" class="abs">
@@ -194,6 +206,7 @@
       <div class="field"><span class="flabel cin">STANDING</span><span id="standing" class="fval">-</span></div>
     </div>
     <div id="prog" class="abs"><span id="progtext"></span><div id="barwrap"><div id="bar"></div></div><div id="exam">You have the points. The promotion exam is the next step.</div></div>
+    <div id="crestbox" class="abs"><img id="crest" alt="" src=""><div id="crestname"></div></div>
     <div id="fichas" class="abs"></div>
 
     <div id="recordbox" class="abs">
@@ -242,7 +255,14 @@
                 "Sun's Height", "Last Seed", "Hearthfire", "Frostfall", "Sun's Dusk", "Evening Star"];
   var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   var STATE_WORD = ["not yet open to you", "can be taken now", "taken", "taken - the next rank can be taken", "taken - more ranks, not yet"];
-  var ARM_MS = 450;     // the second click counts only this long after the first: a double click never takes
+  // The hold names the table of halls writes (c_hold) -> the crest file and the hold the card names (D113)
+  var CRESTS = {
+    "Whiterun": ["Whiterun", "Whiterun"], "Markarth": ["The-Reach", "The Reach"], "Windhelm": ["Eastmarch", "Eastmarch"],
+    "Dawnstar": ["The-Pale", "The Pale"], "Riften": ["The-Rift", "The Rift"], "Winterhold": ["Winterhold", "Winterhold"],
+    "Morthal": ["Hjaalmarch", "Hjaalmarch"], "Solitude": ["Haafingar", "Haafingar"], "Falkreath": ["Falkreath", "Falkreath"]
+  };
+  var crestShown = "none";
+  var ARM_MS = 450;    // the second click counts only this long after the first: a double click never takes
   var DETAIL_W = 330;   // the margin's width plus its gap, kept out of the chart's layout
 
   var S = {};
@@ -336,6 +356,30 @@
   if (document.fonts && document.fonts.ready) { document.fonts.ready.then(function () { fitName(lastName); }); }
 
   // ------------------------------------------------------------------- identity
+  function drawCrest() {
+    var img = byId("crest"), hold = S["c_hold"] === undefined ? "" : String(S["c_hold"]);
+    var c = CRESTS.hasOwnProperty(hold) ? CRESTS[hold] : null;
+    if (c === null) { img.style.display = "none"; img.removeAttribute("src"); setText("crestname", ""); crestShown = "none"; return; }
+    img.onerror = function () { img.style.display = "none"; crestShown = "missing"; send("AoTCardLog", "crest|missing|" + c[0]); };
+    img.onload = function () { img.style.display = "block"; crestShown = c[0]; send("AoTCardLog", "crest|ok|" + c[0] + "|" + img.naturalWidth); };
+    img.src = "crest/" + c[0] + ".png";
+    setText("crestname", c[1]);
+    crestShown = "loading:" + c[0];
+  }
+  // D116: the player's portrait, a PNG the Lodestone native wrote next to this page; c_portrait is its name, or empty
+  // (the silhouette stays). Only a plain file name is accepted, and the same name is not loaded twice.
+  var portraitFile = "";
+  function drawPortrait() {
+    var img = byId("portraitimg"), sil = byId("psil"), f = S["c_portrait"] === undefined ? "" : String(S["c_portrait"]);
+    if (!/^[A-Za-z0-9_\-]+\.png$/.test(f)) {
+      portraitFile = ""; img.style.display = "none"; img.removeAttribute("src"); sil.style.display = "block"; return;
+    }
+    if (f === portraitFile) { return; }
+    portraitFile = f;
+    img.onerror = function () { img.style.display = "none"; sil.style.display = "block"; portraitFile = ""; send("AoTCardLog", "portrait|missing|" + f); };
+    img.onload = function () { img.style.display = "block"; sil.style.display = "none"; send("AoTCardLog", "portrait|ok|" + f + "|" + img.naturalWidth); };
+    img.src = f;
+  }
   var drawnLetter = "?";
   function drawHeader() {
     var rank = num(S, "c_rank"), maxRank = num(S, "c_maxrank"), points = num(S, "c_points");
@@ -347,6 +391,8 @@
     drawnLetter = letter;
     setText("standing", "Adventurer, rank " + letter);
     drawFichas();
+    drawCrest();
+    drawPortrait();
     setText("pp", S["c_perkok"] === "0" || S["c_pp"] === undefined ? "-" : num(S, "c_pp"));
     if (rank >= maxRank) {
       byId("bar").style.width = "100%"; setText("progtext", "Highest rank reached. Points this rank: " + points);
@@ -572,8 +618,10 @@
     var t = readTree(tab);
     var dreq = byId("dreq"), dopen = byId("dopen"), dcost = byId("dcost"), take = byId("take"), desc = byId("ddesc");
     clear(dreq); clear(dopen); clear(dcost); clear(take); clear(desc); desc.title = "";
-    byId("stamp").className = lastResult === "taken" ? "show" : "";
-    if (t === null || selNode < 0 || selNode >= t.n) {
+    var inTree = t !== null && selNode >= 0 && selNode < t.n;
+    // D113: the stamp is the state of the picked perk (taken), not only the answer to the last click
+    byId("stamp").className = (lastResult === "taken" || (inTree && t.s[selNode] >= 2)) ? "show" : "";
+    if (!inTree) {
       setText("dkick", t ? skillTitle(t.skill).toUpperCase() + " - SKILL " + t.lvl : "PERK");
       setText("dname", "Pick a star");
       byId("dstate").className = "ds0";
@@ -641,7 +689,7 @@
       var d = parse(payload);
       if (d["c_name"] !== undefined) {
         for (var k in S) { if (S.hasOwnProperty(k) && k.charAt(0) === "t") { delete S[k]; } }
-        delete S["c_trees"];
+        delete S["c_trees"]; delete S["c_hold"]; delete S["c_portrait"];
         selNode = -1; armedAt = 0; lastResult = "";
       }
       for (var key in d) { if (d.hasOwnProperty(key)) { S[key] = d[key]; } }
@@ -659,9 +707,11 @@
       send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
         "|rank=" + drawnLetter + "|points=" + (drawnPoints ? drawnPoints[0] : "?") +
         "|level=" + byId("level").textContent + "|pp=" + byId("pp").textContent +
-        "|seal=Rank " + drawnLetter + "|fichas=" + fichasText() +
+        "|seal=Rank " + drawnLetter + "|crest=" + crestShown + "|portrait=" + (portraitFile === "" ? "none" : portraitFile) + "|fichas=" + fichasText() +
         "|cols=" + byId("tabs").getElementsByClassName("col").length +
         "|nodes=" + byId("plane").getElementsByClassName("node").length +
+        "|taken=" + (byId("plane").getElementsByClassName("s2").length + byId("plane").getElementsByClassName("s3").length +
+          byId("plane").getElementsByClassName("s4").length) + "|stamp=" + (byId("stamp").className === "show" ? 1 : 0) +
         "|tab=" + tab + "|recent=" + byId("recent").getElementsByClassName("stamp").length +
         "|desc=" + descCount());
     } catch (err) {

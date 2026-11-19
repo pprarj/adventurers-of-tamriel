@@ -5,7 +5,7 @@ and MMH branches are soft: they probe at runtime with Game.GetFormFromFile and h
 when the soft master is absent, without logging an error (D007).
 No properties need filling: every lookup is by form file at runtime.}
 
-; -- keeps the dialogue true (D034): a 3 second tick places the attendant when the player is in
+; -- keeps the dialogue true (D034): a 3 second tick watches the attendant (D117) when the player is in
 ; the guild hall, and every 7th tick re-syncs the dialogue globals. Single updates are re-armed
 ; in OnUpdate and persist across saves. Cheap: a cell compare per tick, a few reads per sync.
 Int _tick = 0
@@ -20,8 +20,11 @@ Event OnUpdate()
     If StorageUtil.GetIntValue(None, "aot_list_dirty", 0) == 1
         RefreshList()
     EndIf
-    EnsureAttendant()
-    AoT_Hall.EnsureFixtures()
+    ; D117: without PapyrusUtil or the table of halls one line per load says so; nothing of the halls is watched
+    If CheckDeps()
+        EnsureAttendant()
+        AoT_Hall.EnsureFixtures()
+    EndIf
     AoT_Exam.Tick()
     _tick += 1
     If _tick >= 7
@@ -37,108 +40,95 @@ String Function HallsPath() Global
     Return "../../../Config/AdventurersOfTamriel/halls"
 EndFunction
 
-Function EnsureAttendant() Global
-    {The base NPC is placed at the hall's AoT_GuildHallAttendantSpot the first time the player is
-    inside, and again if it died or vanished. The hall is found by the table of halls (cloned,
-    one per hold; the plugin, the cell and the marker are looked up by form file, so no plugin needs
-    a new master); the single Fase 6 hall is the fallback. No cell override, so the Actors plugin
-    keeps its clean header.}
-    Actor pl = Game.GetPlayer()
-    Cell here = pl.GetParentCell()
+String Function HallHoldHere() Global
+    {Fase 16 etapa 5 (D113): the hold of the hall the player stands in, read from the table of halls ("" outside a hall).}
+    Cell here = Game.GetPlayer().GetParentCell()
     If !here || !here.IsInterior()
-        Return
+        Return ""
     EndIf
-    Cell hall = None
-    ObjectReference spot = None
-    String attKey = "aot_att_ref"
     String path = HallsPath()
     Int n = JsonUtil.StringListCount(path, "aot_hall_holds")
     Int i = 0
-    While i < n && !hall
-        String hold = JsonUtil.StringListGet(path, "aot_hall_holds", i)
+    While i < n
         String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + i, "")
-        Int cellId = JsonUtil.IntListGet(path, "aot_hall_" + i, 0)
-        Cell c = None
         If plug != ""
-            c = Game.GetFormFromFile(cellId, plug) as Cell
-        EndIf
-        If c && c == here
-            hall = c
-            spot = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + i, 1), plug) as ObjectReference
-            attKey = "aot_att_ref_" + hold
+            Cell c = Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + i, 0), plug) as Cell
+            If c && c == here
+                Return JsonUtil.StringListGet(path, "aot_hall_holds", i)
+            EndIf
         EndIf
         i += 1
     EndWhile
-    If !hall
+    Return ""
+EndFunction
+
+Function StampJoinHold() Global
+    {Fase 16 etapa 5 (D113): the hold of the member's first hall is kept once ("aot_join_hold"), read by the card's crest.
+    Called at the join and at every greeting, so a save that joined before it existed gets its hold at the next talk.}
+    If StorageUtil.GetStringValue(None, "aot_join_hold", "") != "" || !AoT_Core.IsMember()
         Return
     EndIf
-    If !Game.IsPluginInstalled("AdventurersOfTamriel.esp")
-        Return
-    EndIf
-    ActorBase base = Game.GetFormFromFile(0x000D99, "AdventurersOfTamriel.esp") as ActorBase
-    Actor cur = StorageUtil.GetFormValue(None, attKey, None) as Actor
-    If !(cur && !cur.IsDead() && cur.GetParentCell() == hall)
-        ; Fase 13 etapa 6: the stored ref can be lost (reload, a second tick); look in the hall itself before placing
-        cur = _AdoptOrTrim(hall, base, cur)
-    EndIf
-    If cur && !cur.IsDead() && cur.GetParentCell() == hall
-        StorageUtil.SetFormValue(None, attKey, cur)
-        If spot && spot.Is3DLoaded() && cur.GetDistance(spot) > 90.0
-            ; the sandbox package let her wander off from behind the counter: bring her back and hold her there
-            cur.MoveTo(spot)
-            cur.SetAngle(0.0, 0.0, spot.GetAngleZ())
-            AoT_Core.Log("[AoT] Attendant: back to the counter " + cur)
-        EndIf
-        If !cur.IsInDialogueWithPlayer()
-            cur.SetDontMove(True)
-        EndIf
-        Return
-    EndIf
-    If !spot || !base
-        Debug.Trace("[AoT] Attendant: spot or base missing, not placed")
-        Return
-    EndIf
-    If !spot.Is3DLoaded()
-        AoT_Core.Log("[AoT] Attendant: spot 3D not loaded yet, retry next tick (" + spot + ")")
-        Return
-    EndIf
-    Actor a = spot.PlaceAtMe(base, 1, True) as Actor
-    If a
-        a.SetDontMove(True)
-        AoT_Core.Log("[AoT] Attendant: spot at " + spot.GetPositionX() + "," + spot.GetPositionY() + "," + spot.GetPositionZ())
-        StorageUtil.SetFormValue(None, attKey, a)
-        StorageUtil.SetFormValue(None, "aot_att_ref", a)
-        AoT_Core.Log("[AoT] Attendant placed " + a + " in the hall")
+    String hold = HallHoldHere()
+    If hold != "" && AoT_Core._CanWrite()
+        StorageUtil.SetStringValue(None, "aot_join_hold", hold)
+        AoT_Core.Log("[AoT] Attendant: join hold " + hold)
     EndIf
 EndFunction
 
-Actor Function _AdoptOrTrim(Cell akHall, ActorBase akBase, Actor akStored) Global
-    {Fase 13 etapa 6: one attendant per hall. Keeps the stored one if it is a live attendant of this hall, else the
-    first live attendant found in the cell; every other ref of the base in the cell is disabled and deleted.
-    Returns the keeper, or None when the cell has none.}
-    If !akHall || !akBase
-        Return None
+Function EnsureAttendant() Global
+    {Fase 16 etapa 10 (D117): the attendant of each hall is a persistent ACHR of the hall's _Interiors plugin, at the
+    AoT_GuildHallAttendantSpot marker, held there by DefaultStayAtEditorLocation. This only watches her: the plugin's
+    ref (index 5 of the hall row in halls.json) is adopted, restored when dead, disabled or out of the hall, and a ref
+    of the base the script created in a 1.0/1.1 save is removed (AoT_Hall.WatchNpc). Nothing is placed, moved back
+    to the counter or held with SetDontMove any more.}
+    Int i = AoT_Exam.HallIndexOfPlayer()
+    If i < 0 || !Game.IsPluginInstalled("AdventurersOfTamriel.esp")
+        Return
     EndIf
-    Actor keep = None
-    If akStored && !akStored.IsDead() && akStored.GetParentCell() == akHall
-        keep = akStored
+    ActorBase base = Game.GetFormFromFile(0x000D99, "AdventurersOfTamriel.esp") as ActorBase
+    Actor a = AoT_Hall.WatchNpc(i, 1, 5, base, "aot_att_ref_", "Attendant")
+    If a && StorageUtil.GetFormValue(None, "aot_att_ref", None) != a
+        StorageUtil.SetFormValue(None, "aot_att_ref", a)
     EndIf
-    Int n = akHall.GetNumRefs(43)
-    Int k = 0
-    While k < n
-        Actor r = akHall.GetNthRef(k, 43) as Actor
-        If r && r.GetBaseObject() == akBase
-            If !keep && !r.IsDead()
-                keep = r
-            ElseIf r != keep
-                AoT_Core.Log("[AoT] Attendant: duplicate removed " + r)
-                r.Disable()
-                r.Delete()
-            EndIf
-        EndIf
-        k += 1
-    EndWhile
-    Return keep
+EndFunction
+
+; -- once per load (D117): a missing dependency is said in the log once, not every tick --
+String _warned = ""
+
+Function NewLoad()
+    {Called by AoT_MCM.OnGameReload: the warnings may be said again after this load.}
+    _warned = ""
+EndFunction
+
+Function _WarnOnce(String asKey, String asLine)
+    If StringUtil.Find(_warned, "|" + asKey + "|") < 0
+        _warned += "|" + asKey + "|"
+        Debug.Trace(asLine)
+    EndIf
+EndFunction
+
+Function Warn(String asKey, String asLine) Global
+    {One [AoT] line per load for the key (without SkyUI, whose quest gives the load event, once per session).}
+    AoT_Attendant a = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as AoT_Attendant
+    If a
+        a._WarnOnce(asKey, asLine)
+    Else
+        Debug.Trace(asLine)
+    EndIf
+EndFunction
+
+Bool Function CheckDeps() Global
+    {D117: the halls are found through PapyrusUtil and Config/AdventurersOfTamriel/halls.json. Without either, nothing
+    of the guild appears in the halls; that was silent and is now one log line per load. False when one is missing.}
+    If PapyrusUtil.GetVersion() <= 0
+        Warn("papyrusutil", "[AoT] PapyrusUtil not loaded: the guild halls are not watched (no attendant, examiner or board check)")
+        Return False
+    EndIf
+    If !JsonUtil.JsonExists(HallsPath()) || JsonUtil.StringListCount(HallsPath(), "aot_hall_holds") <= 0
+        Warn("halls", "[AoT] Config/AdventurersOfTamriel/halls.json missing or empty: the guild halls are not watched")
+        Return False
+    EndIf
+    Return True
 EndFunction
 
 Function ProbeReport() Global
@@ -907,6 +897,7 @@ Function RunAction(Int aiAction, Int aiBand) Global
         ; D077: "I want to join the guild." - member at rank F
         Bool joined = AoT_Core.JoinGuild()
         AoT_Core.Log("[AoT] Attendant: join=" + joined)
+        StampJoinHold()
     ElseIf aiAction == 8
         ; the examiner is told the exam is marked; only while the points enable it (SyncGlobals clears a stale mark)
         SyncGlobals()
@@ -930,6 +921,7 @@ Function RunAction(Int aiAction, Int aiBand) Global
         ; open the abandon list / greet (Fase 15 etapa 1, D089: SyncGlobals fills the slots too; action 10 writes the
         ; list to the log). Fase 15 etapa 12 (D107): a change found here refreshes the list quest (FillSlots, RefreshList)
         StorageUtil.SetIntValue(None, "aot_abandon_pick", 0)
+        StampJoinHold()
         If aiAction == 10
             _LogAtSpeech("open")
         EndIf
@@ -962,7 +954,14 @@ Function RunAction(Int aiAction, Int aiBand) Global
         _LogAtSpeech("pick " + (aiAction - 20))
     ElseIf aiAction == 30
         ; test surface (D083): take a note of the hall board to the player, kind in aiBand (0 ours, 1 Missives, 2 Missives with a Steward)
+        ; Fase 16 etapa 13 (D123): a Missives note sits on the Missives board, alias 1, when it is filled
         AoT_GuildBoardAlias ba = AoT_ContractsCtl.Get().GetAlias(0) as AoT_GuildBoardAlias
+        If aiBand != 0
+            AoT_GuildBoardAlias bm = AoT_ContractsCtl.Get().GetAlias(1) as AoT_GuildBoardAlias
+            If bm && bm.GetReference()
+                ba = bm
+            EndIf
+        EndIf
         If ba
             ba.TestTakeNote(aiBand)
         EndIf
