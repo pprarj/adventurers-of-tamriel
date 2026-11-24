@@ -9,6 +9,7 @@ Event OnDeath(Actor akKiller)
 	AoT_Contract c = q as AoT_Contract
 	If c
 		Debug.Trace("[AoT-F9] Boss died on " + q)
+		AoT_Crystals.GiveLarge(c, GetActorReference(), "boss")
 		c.TryComplete()
 	EndIf
 EndEvent

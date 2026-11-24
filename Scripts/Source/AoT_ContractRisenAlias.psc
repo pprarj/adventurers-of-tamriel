@@ -5,6 +5,9 @@ AoT_ContractRisen when the Boss dies. Its death closes the contract.}
 Event OnDeath(Actor akKiller)
 	AoT_ContractRisen c = GetOwningQuest() as AoT_ContractRisen
 	If c && c.GetStage() == 30
+		If JsonUtil.GetIntValue(AoT_Crystals.TablePath(), "aot_crystal_large_on_risen", 0) == 1
+			AoT_Crystals.GiveLarge(c, GetActorReference(), "risen")
+		EndIf
 		c.RisenDied()
 	EndIf
 EndEvent

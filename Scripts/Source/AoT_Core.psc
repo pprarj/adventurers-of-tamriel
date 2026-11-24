@@ -290,6 +290,15 @@ Int Function CardKey() Global
 	Return k
 EndFunction
 
+Int Function PortraitKey() Global
+	{D144: DirectInput scancode of the portrait key; 66 (F8) by default. It takes the card's modifier (D093).}
+	Int k = StorageUtil.GetIntValue(None, "aot_opt_portrait_key", 66)
+	If k < 1 || k > 255
+		Return 66
+	EndIf
+	Return k
+EndFunction
+
 Int Function CardModifier() Global
 	{D093: the modifier the card key needs to OPEN the card: 0 none (default), 1 Shift, 2 Ctrl, 3 Alt.}
 	Int m = StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0)

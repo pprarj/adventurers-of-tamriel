@@ -20,6 +20,7 @@ Function TryOpen()
 	Debug.Trace("[AoT-F9] emergency taken " + self + " rank=" + AoT_Core.GetRank() + " dungeon=" + DungeonLocation())
 	MirrorStage(20)
 	SetObjectiveDisplayed(20)
+	AoT_Crystals.Arm(self)
 EndFunction
 
 Bool Function IsTaken()

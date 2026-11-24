@@ -20,6 +20,8 @@ Event OnUpdate()
     If StorageUtil.GetIntValue(None, "aot_list_dirty", 0) == 1
         RefreshList()
     EndIf
+    ; D137: a missing table is said to the player once per load
+    CheckJsonOnce()
     ; D117: without PapyrusUtil or the table of halls one line per load says so; nothing of the halls is watched
     If CheckDeps()
         EnsureAttendant()
@@ -95,9 +97,59 @@ EndFunction
 ; -- once per load (D117): a missing dependency is said in the log once, not every tick --
 String _warned = ""
 
+Bool _jsonPending = True
+
 Function NewLoad()
-    {Called by AoT_MCM.OnGameReload: the warnings may be said again after this load.}
+    {Called by AoT_MCM.OnGameReload: the warnings may be said again after this load, and the tables are checked once more
+    (Fase 17 etapa 3, D137).}
     _warned = ""
+    _jsonPending = True
+EndFunction
+
+String Function JsonMissing() Global
+    {Fase 17 etapa 3 (D137): the JSON tables the guild cannot run without, in Data/Config/AdventurersOfTamriel/, each by the
+    file and one key it must hold (a file that is there but empty or unreadable counts as missing). "" when all open,
+    else the names of the missing ones, one per line "name.json". Without PapyrusUtil nothing can be read: "" (CheckDeps
+    already says that one).}
+    If PapyrusUtil.GetVersion() <= 0
+        Return ""
+    EndIf
+    String out = ""
+    If !JsonUtil.JsonExists(AoT_Core.TablePath()) || JsonUtil.IntListCount(AoT_Core.TablePath(), "aot_ladder") <= 0
+        out += "points.json" + "\n"
+    EndIf
+    If !JsonUtil.JsonExists(HallsPath()) || JsonUtil.StringListCount(HallsPath(), "aot_hall_holds") <= 0
+        out += "halls.json" + "\n"
+    EndIf
+    String cp = AoT_ContractsCtl.ContractsPath()
+    If !JsonUtil.JsonExists(cp) || JsonUtil.IntListCount(cp, "aot_band_flst") <= 0
+        out += "contracts.json" + "\n"
+    EndIf
+    Return out
+EndFunction
+
+Function CheckJsonOnce()
+    {Fase 17 etapa 3 (D137, relato do Nexus: a Linux install lost the files and the mod failed with one silent line per
+    read). Once per load, from the 3 s tick once the player can see the screen: one [AoT] log line per missing table and ONE
+    message box to the player with the names and the folder. All present: nothing. Nothing is written to the save.}
+    If !_jsonPending || Utility.IsInMenuMode()
+        Return
+    EndIf
+    _jsonPending = False
+    String miss = JsonMissing()
+    If miss == ""
+        Return
+    EndIf
+    String list = ""
+    Int at = StringUtil.Find(miss, "\n")
+    While at >= 0
+        String nm = StringUtil.Substring(miss, 0, at)
+        Debug.Trace("[AoT] missing " + nm + " at Data/Config/AdventurersOfTamriel/")
+        list += "  " + nm + "\n"
+        miss = StringUtil.Substring(miss, at + 1)
+        at = StringUtil.Find(miss, "\n")
+    EndWhile
+    Debug.MessageBox("Adventurers of Tamriel cannot run: these files are missing or unreadable in Data/Config/AdventurersOfTamriel/\n" + list + "Install the mod again with its installer (the folder must keep that exact path, and on Linux the same upper and lower case). Wrye Bash skips the Config folder unless the package has Has Extra Directories ticked.")
 EndFunction
 
 Function _WarnOnce(String asKey, String asLine)
@@ -368,8 +420,23 @@ Int Function _GlobalId(String asName) Global
     ElseIf asName == "listready"
         ; Fase 15 etapa 12 (D107): 1 once the abandon list's quest holds the current list (D108: its location aliases)
         Return 0x000F62
+    ElseIf asName == "bedprice"
+        ; Fase 17 etapa 4 (D139): the price of a bed of the hall, 0 hides the topic
+        Return 0x000FB2
     EndIf
     Return 0x000DA4
+EndFunction
+
+Function _ShowGlobal(GlobalVariable akGlobal) Global
+    {A prompt's <Global=...> reads the value the quest of the topic keeps for the global (its text display globals),
+    and SetValue does not change that copy: renew it. A global the quest does not list answers False; say so once.}
+    Quest q = Game.GetFormFromFile(0x000DA5, "AdventurersOfTamriel.esp") as Quest
+    If q && !q.UpdateCurrentInstanceGlobal(akGlobal)
+        If StorageUtil.GetIntValue(None, "aot_qtgl_warned", 0) == 0
+            StorageUtil.SetIntValue(None, "aot_qtgl_warned", 1)
+            Debug.Trace("[AoT] Attendant: the talk quest does not list " + akGlobal + " as a text display global")
+        EndIf
+    EndIf
 EndFunction
 
 Function _SetGlobal(String asName, Int aiValue) Global
@@ -384,6 +451,9 @@ Function _SetGlobal(String asName, Int aiValue) Global
     GlobalVariable g = Game.GetFormFromFile(_GlobalId(asName), plug) as GlobalVariable
     If g
         g.SetValue(aiValue as Float)
+        If asName == "bedprice" || asName == "fee1" || asName == "fee2" || asName == "fee3" || asName == "fee4" || asName == "fee5"
+            _ShowGlobal(g)
+        EndIf
     Else
         Debug.Trace("[AoT] Attendant: global " + asName + " not found")
     EndIf
@@ -521,6 +591,151 @@ Function SyncGlobals() Global
     _SetGlobal("exammarked", marked)
     _SetGlobal("canmarkexam", canMark)
     _SetGlobal("canexam", canExam)
+    ; Fase 17 etapa 4 (D139): a rented bed goes back to its owner when its time is up; the bed topic shows the
+    ; price only in a hall with a bed while no bed of the guild is rented
+    ClearBedIfDue()
+    Int bedPrice = 0
+    If !StorageUtil.GetFormValue(None, "aot_bed_ref", None) && HallBed(AoT_Exam.HallIndexOfPlayer())
+        bedPrice = BedPrice()
+    EndIf
+    _SetGlobal("bedprice", bedPrice)
+EndFunction
+
+; -- a bed of the hall for a day (Fase 17 etapa 4, D139) --
+; The price is the inn price of the game (the global the innkeepers charge, read at runtime, so an economy mod
+; that changes it is followed) less the discount of the rank, from the table (aot_bed_discount_by_rank). The bed
+; is index 8 of the hall row in halls.json. Renting makes the player its owner; when the hours the innkeepers use
+; are up, SyncGlobals gives it back to the owner it had. One bed of the guild is rented at a time.
+
+Int Function BedBasePrice() Global
+    {The inn price: DialogueGeneric's RoomRentalCost, else the RoomCost global of Skyrim.esm; 0 when neither is found.}
+    DialogueGenericScript dg = Game.GetForm(0x00013EB3) as DialogueGenericScript
+    GlobalVariable g = None
+    If dg
+        g = dg.RoomRentalCost
+    EndIf
+    If !g
+        g = Game.GetForm(0x0009CC98) as GlobalVariable
+    EndIf
+    If !g
+        Return 0
+    EndIf
+    Return g.GetValueInt()
+EndFunction
+
+Float Function BedHours() Global
+    {Game hours of a rent: the innkeepers' RentHours, 24 when it is not readable.}
+    DialogueGenericScript dg = Game.GetForm(0x00013EB3) as DialogueGenericScript
+    If dg && dg.RentHours > 0.0
+        Return dg.RentHours
+    EndIf
+    Return 24.0
+EndFunction
+
+Int Function BedDiscount() Global
+    {Percent off the inn price at the current rank, from the table; 0 for a non-member or a missing key.}
+    If !AoT_Core.IsMember()
+        Return 0
+    EndIf
+    Int rank = AoT_Core.GetRank()
+    String path = AoT_Core.TablePath()
+    If rank < 0 || JsonUtil.IntListCount(path, "aot_bed_discount_by_rank") <= rank
+        Return 0
+    EndIf
+    Int d = JsonUtil.IntListGet(path, "aot_bed_discount_by_rank", rank)
+    If d < 0
+        Return 0
+    ElseIf d > 100
+        Return 100
+    EndIf
+    Return d
+EndFunction
+
+Int Function BedPrice() Global
+    {Gold for a bed: the inn price less the rank discount, rounded, never below 1; 0 when there is no inn price.}
+    Int base = BedBasePrice()
+    If base <= 0
+        Return 0
+    EndIf
+    Int p = Math.Floor(base * (100 - BedDiscount()) / 100.0 + 0.5) as Int
+    If p < 1
+        p = 1
+    EndIf
+    Return p
+EndFunction
+
+ObjectReference Function HallBed(Int aiHall) Global
+    {The bed for rent of hall aiHall (index 8 of its row in halls.json); None outside a hall or without the entry.}
+    If aiHall < 0
+        Return None
+    EndIf
+    String path = HallsPath()
+    String plug = JsonUtil.GetStringValue(path, "aot_hall_plugin_" + aiHall, "")
+    If plug == "" || JsonUtil.IntListCount(path, "aot_hall_" + aiHall) <= 8
+        Return None
+    EndIf
+    Return Game.GetFormFromFile(JsonUtil.IntListGet(path, "aot_hall_" + aiHall, 8), plug) as ObjectReference
+EndFunction
+
+Bool Function RentBed() Global
+    {Action 15: the player rents the bed of the hall they stand in. Refused for a non-member, while a bed is rented,
+    outside a hall, without an inn price or without the gold. Keeps the owner the bed had, to give it back.}
+    If !AoT_Core.IsMember()
+        AoT_Core.Log("[AoT] Attendant RentBed: not a member")
+        Return False
+    EndIf
+    If StorageUtil.GetFormValue(None, "aot_bed_ref", None)
+        AoT_Core.Log("[AoT] Attendant RentBed: a bed is already rented")
+        Return False
+    EndIf
+    Int hall = AoT_Exam.HallIndexOfPlayer()
+    ObjectReference bed = HallBed(hall)
+    Int price = BedPrice()
+    If !bed || price <= 0
+        AoT_Core.Log("[AoT] Attendant RentBed: no bed or no price hall=" + hall + " bed=" + bed + " price=" + price)
+        Return False
+    EndIf
+    Actor player = Game.GetPlayer()
+    Int goldBefore = player.GetGoldAmount()
+    If goldBefore < price
+        AoT_Core.Log("[AoT] Attendant RentBed: insufficient gold " + goldBefore + " < " + price)
+        Return False
+    EndIf
+    Faction ownerFaction = bed.GetFactionOwner()
+    ActorBase ownerActor = bed.GetActorOwner()
+    Float until = Utility.GetCurrentGameTime() + BedHours() / 24.0
+    StorageUtil.SetFormValue(None, "aot_bed_ref", bed)
+    StorageUtil.SetFormValue(None, "aot_bed_owner", ownerFaction)
+    StorageUtil.SetFormValue(None, "aot_bed_actor", ownerActor)
+    StorageUtil.SetFloatValue(None, "aot_bed_until", until)
+    bed.SetActorOwner(player.GetActorBase())
+    player.RemoveItem(Game.GetForm(0x0000000F) as MiscObject, price)
+    AoT_Core.Log("[AoT] Attendant RentBed hall=" + hall + " bed=" + bed + " base=" + BedBasePrice() + " discount=" + BedDiscount() + " price=" + price + " gold " + goldBefore + " -> " + player.GetGoldAmount() + " owner " + ownerFaction + "/" + ownerActor + " -> " + bed.GetActorOwner() + " until=" + until)
+    Return True
+EndFunction
+
+Function ClearBedIfDue() Global
+    {Gives the rented bed back to the owner it had once its time is up (called from SyncGlobals).}
+    ObjectReference bed = StorageUtil.GetFormValue(None, "aot_bed_ref", None) as ObjectReference
+    If !bed
+        Return
+    EndIf
+    Float now = Utility.GetCurrentGameTime()
+    If now < StorageUtil.GetFloatValue(None, "aot_bed_until", 0.0)
+        Return
+    EndIf
+    Faction ownerFaction = StorageUtil.GetFormValue(None, "aot_bed_owner", None) as Faction
+    ActorBase ownerActor = StorageUtil.GetFormValue(None, "aot_bed_actor", None) as ActorBase
+    If ownerFaction
+        bed.SetFactionOwner(ownerFaction)
+    Else
+        bed.SetActorOwner(ownerActor)
+    EndIf
+    StorageUtil.UnsetFormValue(None, "aot_bed_ref")
+    StorageUtil.UnsetFormValue(None, "aot_bed_owner")
+    StorageUtil.UnsetFormValue(None, "aot_bed_actor")
+    StorageUtil.UnsetFloatValue(None, "aot_bed_until")
+    AoT_Core.Log("[AoT] Attendant: bed " + bed + " back to " + bed.GetFactionOwner() + "/" + bed.GetActorOwner() + " at " + now)
 EndFunction
 
 Quest Function ContractQuest(Int aiId) Global
@@ -851,7 +1066,9 @@ Function RunAction(Int aiAction, Int aiBand) Global
     4 deliver the MMH hunt, 5 start the promotion exam, 6 promote at a step without exam.
     Fase 14 etapa 1 (D077): 7 join the guild, 8 mark the exam, 9 report (Fase 14 etapa 2; ours only since etapa 4),
     10 and 11 fill the abandon list, 12 abandon the picked slot, 13 refuse, 14 turn in the Missives quests at their
-    Steward stage (R1, Fase 14 etapa 4, D085), 21 to 24 pick slot 1 to 4. 30 is test surface (D083): take a note of
+    Steward stage (R1, Fase 14 etapa 4, D085), 15 rent the bed of the hall (Fase 17 etapa 4, D139), 16 trade in the creature
+    crystals (Fase 17 etapa 6, D143), 21 to 24 pick
+    slot 1 to 4. 30 is test surface (D083): take a note of
     the hall board to the player, kind in aiBand.
     Re-syncs the globals after.}
     Quest q = Game.GetFormFromFile(0x000DB6, "AdventurersOfTamriel.esp") as Quest
@@ -952,6 +1169,12 @@ Function RunAction(Int aiAction, Int aiBand) Global
         StorageUtil.SetIntValue(None, "aot_abandon_pick", aiAction - 20)
         AoT_Core.Log("[AoT-F15] abandon pick slot=" + (aiAction - 20) + " id=" + StorageUtil.GetIntValue(None, "aot_slot_id_" + (aiAction - 20), 0))
         _LogAtSpeech("pick " + (aiAction - 20))
+    ElseIf aiAction == 15
+        ; Fase 17 etapa 4 (D139): "I'd like to rent a bed."
+        RentBed()
+    ElseIf aiAction == 16
+        ; Fase 17 etapa 6 (D143): "I want to sell my crystals."
+        AoT_Crystals.TradeIn()
     ElseIf aiAction == 30
         ; test surface (D083): take a note of the hall board to the player, kind in aiBand (0 ours, 1 Missives, 2 Missives with a Steward)
         ; Fase 16 etapa 13 (D123): a Missives note sits on the Missives board, alias 1, when it is filled

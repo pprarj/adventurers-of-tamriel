@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Adventurers of Tamriel - portrait</title>
+<!--
+  The background page of the adventurer card's portrait (D144). The portrait key opens it: without a portrait it opens
+  right after the capture, with one it opens on the confirmed portrait. It shows the portrait (a PNG cut out by
+  Lodestone, transparent around the player) over the four backgrounds, and it does three things: confirm, take another,
+  cancel. Nothing changes until confirm; cancel keeps the portrait and the background that were there.
+
+  THE CONTRACT with AoT_Card.psc: AoTOnPortrait (payload in), AoTPortraitAction ("ready-..", "confirm|<background>",
+  "retake", "cancel", "close"), AoTPortraitLog ("ack|..", "photo|..", "alpha|..", "tiles|..", "why|..", "js-error"). Payload keys: p_name, hotkey,
+  p_current (the confirmed file, or empty), p_new (a capture not yet confirmed, or empty), p_bg (the confirmed
+  background, 0 to 3), p_reason (why the last capture was refused, or empty).
+
+  THE HANDSHAKE is the card's: the page announces itself with AoTPortraitAction("ready-..") as soon as it loads and
+  again after every payload; Papyrus asks for the focus only after that. The card key closes nothing here; the
+  portrait key and Esc close the page as cancel.
+
+  Written for the engines of Lodestone's WebUI bridge, Prisma UI and Magelight UI: ES5 only, className only, no
+  external request (the fonts and the backgrounds sit next to the page). The finish is the card's: flat paper
+  #dcc590, one brown ink, Cinzel for the titles.
+-->
+<style>
+  @font-face { font-family: "AoT Cinzel"; font-weight: 500; src: url("fonts/cinzel-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "AoT Cinzel"; font-weight: 700; src: url("fonts/cinzel-latin-700-normal.woff2") format("woff2"); }
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#4a3220; font-family:Georgia, "Times New Roman", serif; }
+  #shade { position:absolute; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); }
+  #stagebox { position:absolute; left:50%; top:50%; width:900px; height:560px; margin-left:-450px; margin-top:-280px; opacity:0; }
+  #stagebox.ready { opacity:1; }
+  .cin { font-family:"AoT Cinzel", Georgia, serif; }
+  .abs { position:absolute; }
+  #sheet { position:absolute; left:0; top:0; width:900px; height:560px; box-sizing:border-box; background:#dcc590; border:1px solid #4a3220; outline:3px double #4a3220; outline-offset:-9px; }
+  #ptitle { left:0; right:0; top:30px; text-align:center; font-size:24px; font-weight:700; letter-spacing:3px; }
+  #psub { left:0; right:0; top:62px; text-align:center; font-size:14px; font-style:italic; }
+  .rule2 { position:absolute; height:3px; border-top:1px solid #4a3220; border-bottom:1px solid #4a3220; }
+
+  /* The preview: the portrait over the background picked now. */
+  #pframe { left:50px; top:104px; width:376px; height:376px; box-sizing:border-box; padding:7px; border:1px solid #4a3220; }
+  .shot { position:relative; overflow:hidden; background:#ceb57a; }
+  .shot img { position:absolute; left:0; top:0; width:100%; height:100%; display:none; }
+  .shot svg { position:absolute; left:50%; top:50%; width:40%; height:40%; margin:-20% 0 0 -20%; }
+  #big { width:360px; height:360px; outline:1px solid #4a3220; }
+  .bg0 { background:#dcc590; }
+  .bg1 { background:#dcc590 url("portrait-bg/nordic-ruins.png") center center / cover no-repeat; }
+  .bg2 { background:#dcc590 url("portrait-bg/soul-cairn.png") center center / cover no-repeat; }
+  .bg3 { background:#dcc590 url("portrait-bg/word-wall.png") center center / cover no-repeat; }
+
+  /* The four backgrounds, each already composed with the portrait. */
+  #tiles { left:470px; top:104px; width:380px; }
+  .tile { position:relative; display:inline-block; width:170px; margin:0 16px 14px 0; vertical-align:top; cursor:pointer; }
+  .tile .shot { width:130px; height:130px; margin:0 auto; border:1px solid #4a3220; }
+  .tile .lbl { display:block; text-align:center; font-size:12px; letter-spacing:2px; margin-top:5px; }
+  .tile.sel .shot { box-shadow:0 0 0 3px #dcc590, 0 0 0 6px #8e1e17; }
+  .tile.sel .lbl { color:#8e1e17; }
+
+  /* The reason of a refused capture (D169): over the preview, where the eye is, not in the small line below the tiles. */
+  #why { left:7px; right:7px; bottom:7px; display:none; padding:10px 14px; box-sizing:border-box; background:#dcc590; border-top:3px solid #8e1e17; color:#8e1e17; font-size:15px; line-height:20px; font-weight:bold; }
+  #note { left:470px; top:454px; width:380px; height:36px; overflow:hidden; font-size:13px; font-style:italic; }
+  #note.why { color:#8e1e17; font-style:normal; }
+  #buttons { left:50px; right:50px; top:498px; text-align:right; }
+  .btn { display:inline-block; margin-left:14px; padding:7px 18px; border:1px solid #4a3220; background:#dcc590; color:#4a3220; font-size:13px; letter-spacing:2px; cursor:pointer; }
+  .btn.main { background:#4a3220; color:#dcc590; }
+  .btn.off { opacity:0.4; cursor:default; }
+</style>
+</head>
+<body>
+<div id="shade"></div>
+<div id="stagebox">
+  <div id="sheet">
+    <div id="ptitle" class="abs cin">PORTRAIT</div>
+    <div id="psub" class="abs">Your portrait, and the background behind it on the adventurer card</div>
+    <div class="rule2" style="left:40px;right:40px;top:88px"></div>
+    <div id="pframe" class="abs"><div id="big" class="shot"></div><div id="why" class="abs"></div></div>
+    <div id="tiles" class="abs"></div>
+    <div id="note" class="abs"></div>
+    <div id="buttons" class="abs">
+      <span id="bretake" class="btn cin">TAKE ANOTHER</span><span id="bcancel" class="btn cin">CANCEL</span><span id="bconfirm" class="btn main cin">CONFIRM</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var NAMES = ["Card", "Nordic Ruins", "Soul Cairn", "Word Wall"];
+  var SIL = '<svg viewBox="0 0 24 24" fill="none" stroke="#4a3220" stroke-width="0.8"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg>';
+
+  var S = {};
+  var hotkey = 0;
+  var picked = 0;      // the background picked now (the payload's p_bg until a click)
+  var busy = false;    // a button was pressed: nothing more until the next payload
+  var photo = "";      // the file drawn now
+  var photoState = "none";
+
+  function resolve(name) {
+    if (typeof window[name] === "function") { return { fn: window[name], via: "direct" }; }
+    var ns = window.Lodestone;
+    if (ns && typeof ns[name] === "function") { return { fn: ns[name], via: "lodestone" }; }
+    return null;
+  }
+  function send(name, arg) {
+    var r = resolve(name);
+    if (r === null) { return false; }
+    r.fn(arg === undefined || arg === null ? "" : String(arg));
+    return true;
+  }
+  function byId(id) { return document.getElementById(id); }
+  function parse(payload) {
+    var out = {};
+    var lines = String(payload === undefined ? "" : payload).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].replace(/[ \t\r]+$/, "");
+      if (ln === "") { continue; }
+      var cut = ln.indexOf("|");
+      if (cut < 0) { continue; }
+      out[ln.substring(0, cut).toLowerCase()] = ln.substring(cut + 1);
+    }
+    return out;
+  }
+  function val(key) { return S[key] === undefined ? "" : String(S[key]); }
+  function okFile(f) { return /^[A-Za-z0-9_\-]+\.png$/.test(f); }
+  function fit() {
+    var w = window.innerWidth || 940, h = window.innerHeight || 600;
+    var s = Math.min(w / 940, h / 600, 1.5);
+    var t = "scale(" + s + ")", c = byId("stagebox");
+    c.style.webkitTransform = t; c.style.transform = t;
+  }
+
+  // One box: the background picked, the portrait over it, or the silhouette when there is none.
+  function fill(box, bg, file) {
+    while (box.firstChild) { box.removeChild(box.firstChild); }
+    box.className = "shot" + (file === "" ? "" : " bg" + bg);
+    if (file === "") { box.innerHTML = SIL; return null; }
+    var img = document.createElement("img");
+    img.alt = "";
+    box.appendChild(img);
+    return img;
+  }
+
+  // A PNG with no transparent corner is not cut out (a render pipeline that changes the depth the cutout reads):
+  // the backgrounds would sit behind a picture that hides them. D161: the choice is shown only once the page has read
+  // the picture and found it cut out ("cut"), or could not read it at all ("unread", as before D150); until then, and
+  // with no picture, only CARD is there, so nothing appears and then goes away.
+  var verdict = {};    // file -> "cut" | "flat" | "unread"
+  var lastTiles = "";  // the last "tiles|.." line sent, so a redraw of the same state says nothing
+  var whyLogged = "";  // the last reason sent to the log, so a redraw says nothing
+  var full = false;    // the four backgrounds are on the page now
+  function checkOpaque(img, file) {
+    try {
+      var c = document.createElement("canvas"), w = img.naturalWidth, h = img.naturalHeight;
+      if (!(w > 8 && h > 8)) { return; }
+      c.width = w; c.height = h;
+      var g = c.getContext("2d");
+      g.drawImage(img, 0, 0);
+      var xs = [2, w - 3], ys = [2, h - 3], seen = 0, clear = 0;
+      for (var i = 0; i < 2; i++) { for (var j = 0; j < 2; j++) { seen += 1; if (g.getImageData(xs[i], ys[j], 1, 1).data[3] < 250) { clear += 1; } } }
+      verdict[file] = clear === 0 ? "flat" : "cut";
+      send("AoTPortraitLog", "alpha|" + file + "|corners-clear=" + clear + "/" + seen);
+    } catch (err) { verdict[file] = "unread"; send("AoTPortraitLog", "alpha|unread|" + err.message); }
+    if (file === photo) { draw(); }
+  }
+
+  function draw() {
+    var fresh = val("p_new"), current = val("p_current");
+    var file = okFile(fresh) ? fresh : (okFile(current) ? current : "");
+    if (file !== photo) { photoState = file === "" ? "none" : "loading"; }
+    photo = file;
+    var big = fill(byId("big"), picked, file);
+    if (big !== null) {
+      big.onload = function () { big.style.display = "block"; photoState = "ok"; send("AoTPortraitLog", "photo|ok|" + file + "|" + big.naturalWidth); if (verdict[file] === undefined) { checkOpaque(big, file); } };
+      big.onerror = function () { photoState = "missing"; send("AoTPortraitLog", "photo|missing|" + file); fill(byId("big"), picked, ""); };
+      big.src = file;
+    }
+    var host = byId("tiles");
+    while (host.firstChild) { host.removeChild(host.firstChild); }
+    var known = file === "" ? "" : (verdict[file] === undefined ? "wait" : verdict[file]);
+    full = (known === "cut" || known === "unread");
+    var flat = (known === "flat");
+    var pick = full ? picked : 0;
+    if (!full && file !== "") { byId("big").className = "shot bg0"; }
+    var count = full ? NAMES.length : 1;
+    var line = "tiles|" + count + "|" + (file === "" ? "none" : file) + "|" + (known === "" ? "none" : known);
+    if (line !== lastTiles) { lastTiles = line; send("AoTPortraitLog", line); }
+    for (var i = 0; i < count; i++) {
+      var tile = document.createElement("div");
+      tile.className = "tile" + (i === pick ? " sel" : "");
+      var shot = document.createElement("div");
+      tile.appendChild(shot);
+      var img = fill(shot, i, file);
+      if (img !== null) {
+        img.onload = (function (x) { return function () { x.style.display = "block"; }; }(img));
+        img.src = file;
+      }
+      var lbl = document.createElement("span");
+      lbl.className = "lbl cin";
+      lbl.textContent = NAMES[i].toUpperCase();
+      tile.appendChild(lbl);
+      tile.onclick = (function (n) { return function () { if (!busy) { picked = n; draw(); } }; }(i));
+      host.appendChild(tile);
+    }
+    var note = byId("note"), why = val("p_reason");
+    var whyBox = byId("why");
+    if (why !== "") {
+      whyBox.textContent = why; whyBox.style.display = "block";
+      if (whyLogged !== why) { whyLogged = why; send("AoTPortraitLog", "why|shown|" + why.length + "|" + (file === "" ? "none" : file)); }
+    } else {
+      whyBox.style.display = "none"; whyBox.textContent = "";
+    }
+    if (why !== "") {
+      note.className = "abs"; note.textContent = file === "" ? "No portrait yet." : (okFile(fresh) ? "The new portrait from before is still here, kept only when you confirm." : "Your portrait is kept as it was.");
+    } else if (flat) {
+      note.className = "abs"; note.textContent = "The backgrounds need a cut-out portrait, and this setup takes a plain one. The portrait on plain paper works.";
+    } else if (okFile(fresh)) {
+      note.className = "abs"; note.textContent = "New portrait: kept only when you confirm.";
+    } else if (file === "") {
+      note.className = "abs"; note.textContent = "No portrait yet.";
+    } else {
+      note.className = "abs"; note.textContent = "Pick a background, or take another portrait.";
+    }
+    var off = busy ? " off" : "";
+    byId("bconfirm").className = "btn main cin" + off;
+    byId("bcancel").className = "btn cin" + off;
+    byId("bretake").className = "btn cin" + off;
+  }
+
+  function act(word) {
+    if (busy) { return; }
+    busy = true;
+    draw();
+    send("AoTPortraitAction", word);
+  }
+  byId("bconfirm").onclick = function () { act("confirm|" + (full ? picked : 0)); };
+  byId("bcancel").onclick = function () { act("cancel"); };
+  byId("bretake").onclick = function () { act("retake"); };
+
+  window.AoTOnPortrait = function (payload) {
+    try {
+      S = parse(payload);
+      var h = parseInt(S["hotkey"], 10); if (h > 0) { hotkey = h; }
+      var b = parseInt(S["p_bg"], 10);
+      picked = (b >= 0 && b < NAMES.length) ? b : 0;
+      busy = false;
+      fit(); draw();
+      byId("stagebox").className = "ready";
+      var back = resolve("AoTPortraitAction");
+      if (back !== null) { back.fn("ready-" + back.via); }
+      send("AoTPortraitLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
+        "|shown=" + (photo === "" ? "none" : photo) + "|new=" + (okFile(val("p_new")) ? 1 : 0) + "|bg=" + picked +
+        "|reason=" + (val("p_reason") === "" ? 0 : 1) + "|tiles=" + byId("tiles").getElementsByClassName("tile").length);
+    } catch (err) {
+      byId("stagebox").className = "";
+      send("AoTPortraitLog", "render error: " + err.message);
+    }
+  };
+
+  window.onerror = function (message, source, line) { send("AoTPortraitLog", "js-error: " + message + " at " + line); return false; };
+  window.onresize = fit;
+  // Esc and the portrait key close the page as cancel (AoT_Card.psc listens to both too).
+  document.onkeydown = function (ev) {
+    var e = ev || window.event;
+    if (e.keyCode === 27 || (hotkey > 0 && e.keyCode === hotkey)) { if (!busy) { busy = true; send("AoTPortraitAction", "close"); } }
+  };
+  var tries = 0;
+  function announce() {
+    var r = resolve("AoTPortraitAction");
+    if (r !== null) { r.fn("ready-" + r.via); return; }
+    tries += 1;
+    if (tries < 50) { window.setTimeout(announce, 100); }
+  }
+  fit();
+  announce();
+}());
+</script>
+</body>
+</html>

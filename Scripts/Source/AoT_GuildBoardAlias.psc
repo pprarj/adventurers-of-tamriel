@@ -532,13 +532,20 @@ Bool Function StartOwn(Quest akQuest, ObjectReference akBoard, String asWhy, Boo
 	EndIf
 	StorageUtil.SetFormValue(akQuest, "aot_offer_board", akBoard)
 	If !akQuest.Start()
+		; D145: the engine empties the aliases of a refused Start(), so the place is not read from the Dungeon alias; the
+		; places it could have taken are rebuilt and tried (D137 read the alias and never forbade anything, f17e3c1r2)
 		Debug.Trace("[AoT-F9] start failed " + akQuest + " (" + asWhy + ")")
+		AoT_ContractsCtl.ForbidBossless(akQuest)
 		MarkFailed(akQuest)
 		Return False
 	EndIf
 	ObjectReference note = c.NoteRef()
 	If !c.IsOfferable() || akBoard.GetItemCount(note.GetBaseObject()) < 1
 		Debug.Trace("[AoT-F9] not offerable " + akQuest + " dungeon=" + c.DungeonLocation() + " target=" + c.TargetActor() + " note=" + note)
+		; D137: a running quest with a place but no Boss: the Boss is disabled (a dead one is still a ref) - forbid the place
+		If c.DungeonLocation() && !c.TargetActor()
+			AoT_ContractsCtl.ForbidLocation(c.DungeonLocation(), "Boss not filled, offer retired")
+		EndIf
 		c.Retire()
 		MarkFailed(akQuest)
 		Return False

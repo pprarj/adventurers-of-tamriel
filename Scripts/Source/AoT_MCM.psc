@@ -34,6 +34,11 @@ Event OnGameReload()
 	EndIf
 	; D124: the global of the hall murmur follows the stored switch (a save from before 1.2 has no switch: on)
 	AoT_Core.SyncHallSound()
+	; D144: the portrait key is registered on a save from before 1.3 too
+	AoT_Card card = CardQuest()
+	If card
+		card.NewLoad()
+	EndIf
 EndEvent
 
 ; D077 (Fase 14 etapa 1): the six options of the guild. Values live in the save (AoT_Core reads them at the moment
@@ -46,12 +51,15 @@ Int _optD32 = 0
 Int _optDebug = 0
 Int _optMod = 0
 Int _optSound = 0
+; D144: the portrait key (the background page); it takes the card key's modifier.
+Int _optPortrait = 0
 
 Event OnPageReset(String asPage)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("Guild")
 	_optKey = AddKeyMapOption("Card key", AoT_Core.CardKey())
 	_optMod = AddMenuOption("Card key modifier", ModMenuText(AoT_Core.CardModifier()))
+	_optPortrait = AddKeyMapOption("Portrait key", AoT_Core.PortraitKey())
 	_optFee = AddSliderOption("Fee multiplier", AoT_Core.FeeMultiplier(), "x{2}")
 	_optPts = AddSliderOption("Points multiplier", AoT_Core.PointsMultiplier(), "x{2}")
 	_optOffers = AddSliderOption("Contracts offered by the board", AoT_Core.BoardOffers() as Float, "{0}")
@@ -61,6 +69,8 @@ Event OnPageReset(String asPage)
 	_optDebug = AddToggleOption("Debug log", AoT_Core.DebugLogOn())
 	; D105: the ids SkyUI gave and the value the modifier line shows (R1170 item 1, empty value and menu); debug log only
 	AoT_Core.Log("[AoT] MCM: page reset page=" + asPage + " key=" + _optKey + " mod=" + _optMod + " dbg=" + _optDebug + " stored=" + StorageUtil.GetIntValue(None, "aot_opt_card_mod", 0) + " modText=[" + ModMenuText(AoT_Core.CardModifier()) + "]")
+	; D189: the perk trees in the right column, from the top of the page (SkyUI: odd positions are the right column)
+	SetCursorPosition(1)
 	If Lodestone.GetVersion() < 1037000
 		AddHeaderOption("Perk trees")
 		AddTextOption("Needs Lodestone 1.6.0 or newer", "", OPTION_FLAG_DISABLED)
@@ -137,10 +147,18 @@ AoT_Card Function CardQuest()
 EndFunction
 
 Event OnOptionKeyMapChange(Int aiOption, Int aiKeyCode, String asConflictControl, String asConflictName)
-	If aiOption != _optKey
+	If aiOption != _optKey && aiOption != _optPortrait
 		Return
 	EndIf
 	If aiKeyCode < 1 || aiKeyCode > 255
+		Return
+	EndIf
+	; D144: the card key and the portrait key are never the same key
+	If aiOption == _optKey && aiKeyCode == AoT_Core.PortraitKey()
+		ShowMessage("That key takes the portrait. Choose another one.", False)
+		Return
+	ElseIf aiOption == _optPortrait && aiKeyCode == AoT_Core.CardKey()
+		ShowMessage("That key opens the adventurer card. Choose another one.", False)
 		Return
 	EndIf
 	If asConflictControl != ""
@@ -148,7 +166,11 @@ Event OnOptionKeyMapChange(Int aiOption, Int aiKeyCode, String asConflictControl
 			Return
 		EndIf
 	EndIf
-	StorageUtil.SetIntValue(None, "aot_opt_card_key", aiKeyCode)
+	If aiOption == _optPortrait
+		StorageUtil.SetIntValue(None, "aot_opt_portrait_key", aiKeyCode)
+	Else
+		StorageUtil.SetIntValue(None, "aot_opt_card_key", aiKeyCode)
+	EndIf
 	SetKeyMapOptionValue(aiOption, aiKeyCode)
 	AoT_Card card = CardQuest()
 	If card
@@ -288,6 +310,18 @@ Event OnOptionDefault(Int aiOption)
 			card.ApplyKey()
 		EndIf
 		Return
+	ElseIf aiOption == _optPortrait
+		; D144: the default F8 only when the card key is not on it
+		If AoT_Core.CardKey() == 66
+			Return
+		EndIf
+		StorageUtil.SetIntValue(None, "aot_opt_portrait_key", 66)
+		SetKeyMapOptionValue(aiOption, 66)
+		AoT_Card pcard = CardQuest()
+		If pcard
+			pcard.ApplyKey()
+		EndIf
+		Return
 	ElseIf aiOption == _optMod
 		StorageUtil.SetIntValue(None, "aot_opt_card_mod", 0)
 		SetMenuOptionValue(aiOption, ModMenuText(0))
@@ -319,7 +353,9 @@ Event OnOptionHighlight(Int aiOption)
 	If aiOption == _optKey
 		SetInfoText("The key that opens the adventurer card. Default F7. The card opens only for guild members.")
 	ElseIf aiOption == _optMod
-		SetInfoText("A key to hold with the card key to open the card: Shift, Ctrl or Alt (left or right), or no modifier. With one chosen, the card key alone does not open it. Default: no modifier.")
+		SetInfoText("A key to hold with the card key to open the card: Shift, Ctrl or Alt (left or right), or no modifier. With one chosen, the card key alone does not open it. The portrait key takes the same modifier. Default: no modifier.")
+	ElseIf aiOption == _optPortrait
+		SetInfoText("Takes your portrait for the adventurer card and opens the page where you pick its background. With a portrait already taken, it opens the page, which can take another. Default F8. Needs Lodestone 1.53.0 or newer.")
 	ElseIf aiOption == _optFee
 		SetInfoText("Multiplies the fee paid at the attendant to unlock a band of contracts. 0 means no fee at all. Default 1.0.")
 	ElseIf aiOption == _optPts

@@ -68,6 +68,7 @@ Function TryOpen()
 		StorageUtil.SetFormValue(None, "aot_own_q" + id, self as Quest)
 		MirrorStage(20)
 		SetObjectiveDisplayed(20)
+		AoT_Crystals.Arm(self)
 	EndIf
 EndFunction
 
@@ -175,7 +176,9 @@ Bool Function WaitStopped()
 EndFunction
 
 Function Finish(Int aiId)
-	{End of a taken contract: the note leaves the player and the quest stops (repeatable).}
+	{End of a taken contract: the note leaves the player and the quest stops (repeatable). The crystal kill event
+	is released first (D143).}
+	AoT_Crystals.Disarm(self)
 	ObjectReference note = NoteRef()
 	If note
 		Game.GetPlayer().RemoveItem(note, 1, True)

@@ -21,8 +21,27 @@
   One click never takes; a double click never takes; another star or another skill disarms; only a star that can be
   taken now is armed; one taking at a time.
 
-  THE CONTRACT with AoT_Card.psc: AoTOnCard (payload in), AoTCardAction ("ready-..", "buy|col|node", "close"),
-  AoTCardLog ("ack|..", "render error", "js-error"). c_recent and tK_desc are drawn only when they arrive.
+  THE CONTRACT with AoT_Card.psc: AoTOnCard (payload in; "c_cursor|1" alone, D159), AoTCardAction ("ready-..",
+  "buy|col|node", "close", "tap-at|U|V"), AoTCardLog ("ack|..", "fit|..", "cursor|..", "render error",
+  "js-error"). c_recent and tK_desc are drawn only
+  when they arrive. D156: after every payload's ack and on resize, "fit|anim=|w=|h=|card=l,t,w,h|op=" says where #idcard landed
+  on the screen and the computed opacity of #stagebox: the ack counts what was drawn, the fit line says it is seen.
+
+  THE CARD IN THE HAND (D154): with c_anim|1 the 3D card is in the player's hand and the page draws #idcard over it,
+  with no shade and no cast shadow (D162): a projective map takes the card's UV square (0 to 1) to the four screen corners of the 3D card
+  (CARD_QUAD), and a click on the star field (#chart) goes back through the inverse map as "tap-at|U|V", for the
+  finger; the click then goes on to the star as before. D178: those corners are measured in the game at the Ready
+  and come as c_quad ("fov,a0,b0,..,a3,b3": the first person field of view, then each corner's tangents, right and up
+  over the distance ahead); empty or unusable, the page keeps CARD_QUAD. The fit line says which (by=) and where the
+  four corners landed (quad=); the first of an opening is always in the game's log (D179). D190: an engine that draws
+  every transform as a 2D affine (the Ultralight of Prisma UI 1.4.1 drops the perspective row of matrix3d) gets the
+  parallelogram nearest to the quad, widened on the card UV until it holds all four corners (D193: the page covers the
+  3D card; no edge of it shows); the fit line says which projection (proj=exact|affine), the largest corner error of
+  the nearest parallelogram (projErr=), how far the page's corners stand outside the quad (cover=), and where the
+  engine put the four corners of #idcard (drawn=) and how far from the quad (err=). D184: the player stands
+  still from the key to the put-away, so the card is measured once and the page does not move; the cursor is there
+  from the ready, and the card key or Esc puts the card away. With
+  c_anim|0 (no generated behavior, or a camera that cannot hold the card) the card is the full-screen one of 1.2.
 
   THE HANDSHAKE (as in the Intelligence Matters research panel): the page announces itself with
   AoTCardAction("ready-..") as soon as it loads, and again after every payload. Papyrus shows nothing focusable and
@@ -66,6 +85,12 @@
   #portrait { position:relative; width:200px; height:200px; overflow:hidden; background:#ceb57a; outline:1px solid #4a3220; }
   #portrait svg { position:absolute; left:50%; top:50%; width:96px; height:96px; margin:-48px 0 0 -48px; }
   #portrait img { width:100%; height:100%; display:block; }
+  /* D144: the confirmed background, under the cut-out portrait (c_bg); the same four as portrait.html. Without a
+     portrait the box keeps the silhouette's colour above. */
+  #portrait.bg0 { background:#dcc590; }
+  #portrait.bg1 { background:#dcc590 url("portrait-bg/nordic-ruins.png") center center / cover no-repeat; }
+  #portrait.bg2 { background:#dcc590 url("portrait-bg/soul-cairn.png") center center / cover no-repeat; }
+  #portrait.bg3 { background:#dcc590 url("portrait-bg/word-wall.png") center center / cover no-repeat; }
   #fields { left:304px; top:104px; width:500px; }
   .field { position:relative; height:46px; border-bottom:1px dotted #4a3220; margin-bottom:8px; }
   .flabel { position:absolute; left:0; top:2px; font-size:11px; letter-spacing:3px; }
@@ -166,15 +191,12 @@
         <pattern id="key" x="0" y="0" width="16" height="12" patternUnits="userSpaceOnUse">
           <path d="M0 11 H3 V1 H13 V8 H7 V5 H10 M13 11 H16" fill="none" stroke="#4a3220" stroke-width="1.3"/>
         </pattern>
-        <!-- D116: the aged paper, variant c of the Fase 16 etapa 5 proposal: two SVG noise filters and a warm rim; no tear -->
+        <!-- D116 and D194: the aged paper (variant c) is a picture made by our own SVG noise filters in a bench, drawn clipped to the card; the filters are not in the page -->
         <clipPath id="paperclip"><polygon points="24,0 1096,0 1120,24 1120,756 1096,780 24,780 0,756 0,24"/></clipPath>
-        <radialGradient id="vig" cx="0.5" cy="0.5" r="0.72"><stop offset="0.55" stop-color="#7a4f1c" stop-opacity="0"/><stop offset="1" stop-color="#7a4f1c" stop-opacity="0.34"/></radialGradient>
-        <filter id="grain" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="0.9 0.35" numOctaves="3" seed="4" result="n"/><feColorMatrix in="n" values="0 0 0 0 0.43  0 0 0 0 0.29  0 0 0 0 0.12  0 0 0 0.55 -0.16"/></filter>
-        <filter id="blot" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves="3" seed="9" result="n"/><feColorMatrix in="n" values="0 0 0 0 0.5  0 0 0 0 0.33  0 0 0 0 0.13  0 0 0 1.1 -0.38"/></filter>
       </defs>
-      <polygon points="24,12 1096,12 1120,36 1120,768 1096,792 24,792 0,768 0,36" fill="rgba(0,0,0,0.45)"/>
+      <polygon id="cardshadow" points="24,12 1096,12 1120,36 1120,768 1096,792 24,792 0,768 0,36" fill="rgba(0,0,0,0.45)"/>
       <polygon points="24,0 1096,0 1120,24 1120,756 1096,780 24,780 0,756 0,24" fill="#dcc590"/>
-      <g clip-path="url(#paperclip)"><rect x="0" y="0" width="1120" height="780" filter="url(#blot)"/><rect x="0" y="0" width="1120" height="780" filter="url(#grain)"/><rect x="0" y="0" width="1120" height="780" fill="url(#vig)"/></g>
+      <g clip-path="url(#paperclip)"><image href="paper.jpg" x="0" y="0" width="1120" height="780" preserveAspectRatio="none"/></g>
       <polygon points="27,7 1093,7 1113,27 1113,753 1093,773 27,773 7,753 7,27" fill="none" stroke="#4a3220" stroke-width="2"/>
       <polygon points="29,12 1091,12 1108,29 1108,751 1091,768 29,768 12,751 12,29" fill="none" stroke="#4a3220" stroke-width="0.8"/>
       <line x1="40" y1="20" x2="1080" y2="20" stroke="#4a3220" stroke-width="0.8"/>
@@ -316,11 +338,216 @@
     while (m < 11 && doy >= MONTH_DAYS[m]) { doy -= MONTH_DAYS[m]; m += 1; }
     return (doy + 1) + " " + MONTHS[m] + ", 4E " + year;
   }
+  // D154: the four screen corners of the 3D card held in first person (top-left, top-right, bottom-right,
+  // bottom-left), in pixels of a 1920 x 1080 screen, only the fallback when c_quad did not come. D192: the mean of the
+  // two openings measured in the game at 2560 x 1440 with the first person field of view at 80 (boot 20261124-093453,
+  // openings 1 and 3), scaled to 1920 around the centre; it replaces the pose of the Blender scene of D180. The game
+  // keeps the horizontal field of view, so another screen scales them by its width.
+  var CARD_QUAD = [[478.8, 89.82], [1441.43, 91.08], [1409.38, 742.27], [509.61, 741.66]];
+  var quadBy = "fixed", lastQuad = null;
+  // Where #idcard sits inside #stagebox, and its size: the 3D card's UV square is this rectangle.
+  var CARD_X = 80, CARD_Y = 10, CARD_W = 1120, CARD_H = 780;
+  var cardMap = null;   // 3x3 row-major: card UV -> screen px, while the card is in the hand
+
+  function animOn() { return num(S, "c_anim") === 1; }
+  function stageClass() { return "ready" + (animOn() ? " inhand" : ""); }
+  // D178: the corners measured at the Ready, in pixels: the field of view is horizontal at the screen's own ratio,
+  // so the focal length is half the width over tan(fov / 2), the same across and down. null = nothing usable came.
+  function measuredQuad(w, h) {
+    var p = (S["c_quad"] === undefined ? "" : String(S["c_quad"])).split(","), v = [], i, f, out = [];
+    if (p.length !== 9) { return null; }
+    for (i = 0; i < 9; i++) {
+      v.push(parseFloat(p[i]));
+      if (!isFinite(v[i])) { return null; }
+    }
+    if (v[0] < 20 || v[0] > 150) { return null; }
+    f = (w / 2) / Math.tan(v[0] * Math.PI / 360);
+    for (i = 0; i < 4; i++) { out.push([w / 2 + f * v[1 + 2 * i], h / 2 - f * v[2 + 2 * i]]); }
+    return out;
+  }
+  function screenQuad(w, h) {
+    var m = measuredQuad(w, h);
+    if (m !== null) { quadBy = "measured"; lastQuad = m; return m; }
+    quadBy = "fixed";
+    var k = w / 1920, out = [];
+    for (var i = 0; i < 4; i++) { out.push([w / 2 + (CARD_QUAD[i][0] - 960) * k, h / 2 + (CARD_QUAD[i][1] - 540) * k]); }
+    lastQuad = out;
+    return out;
+  }
+  // The square (0,0) (1,0) (1,1) (0,1) to the quad q, in closed form.
+  function squareToQuad(q) {
+    var x0 = q[0][0], y0 = q[0][1], x1 = q[1][0], y1 = q[1][1], x2 = q[2][0], y2 = q[2][1], x3 = q[3][0], y3 = q[3][1];
+    var sx = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3, g = 0, hh = 0;
+    if (Math.abs(sx) > 1e-9 || Math.abs(sy) > 1e-9) {
+      var dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2, den = dx1 * dy2 - dx2 * dy1;
+      g = (sx * dy2 - dx2 * sy) / den; hh = (dx1 * sy - sx * dy1) / den;
+    }
+    return [x1 - x0 + g * x1, x3 - x0 + hh * x3, x0, y1 - y0 + g * y1, y3 - y0 + hh * y3, y0, g, hh, 1];
+  }
+  // D190: whether this engine divides by w, the perspective row of matrix3d, asked once of a hidden probe whose right
+  // edge a divide pulls from 100 to 91 px. The Ultralight of Prisma UI 1.4.1 does not (F17e9c8): every transform is
+  // drawn as a 2D affine there.
+  var engineDivides = null;
+  function dividesByW() {
+    if (engineDivides !== null) { return engineDivides; }
+    var e = el("div"), t = "matrix3d(1,0,0,0.001,0,1,0,0,0,0,1,0,0,0,0,1)";
+    e.style.cssText = "position:absolute;left:0;top:0;width:100px;height:100px;visibility:hidden;pointer-events:none;";
+    e.style.webkitTransformOrigin = "0 0"; e.style.transformOrigin = "0 0";
+    e.style.webkitTransform = t; e.style.transform = t;
+    document.body.appendChild(e);
+    engineDivides = e.getBoundingClientRect().width < 95;
+    document.body.removeChild(e);
+    return engineDivides;
+  }
+  // D190: the parallelogram nearest to the quad q: every corner moves by the same d = (q0 - q1 + q2 - q3) / 4, with
+  // alternate signs. No affine map has a smaller largest corner error, and |d| is that error (projErr).
+  // D193: that parallelogram leaves the quad's corners |d| outside it at two corners (the 3D card shows past the page),
+  // so the four corners go back to the card UV through its inverse and the map is composed with their box: the page is
+  // the parallelogram of the same sides that holds all four, and cover is how far its corners stand outside the quad.
+  var proj = "exact", projErr = 0, cover = 0;
+  function distToQuad(p, q) {
+    var i, j, best = Infinity, inside = true, ax, ay, bx, by, ex, ey, l2, s, cx, cy;
+    for (i = 0; i < 4; i++) {
+      j = (i + 1) % 4;
+      ax = q[i][0]; ay = q[i][1]; bx = q[j][0]; by = q[j][1];
+      ex = bx - ax; ey = by - ay;
+      if (ex * (p[1] - ay) - ey * (p[0] - ax) < 0) { inside = false; }
+      l2 = ex * ex + ey * ey;
+      s = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * ex + (p[1] - ay) * ey) / l2)) : 0;
+      cx = ax + s * ex - p[0]; cy = ay + s * ey - p[1];
+      best = Math.min(best, Math.sqrt(cx * cx + cy * cy));
+    }
+    return inside ? 0 : best;
+  }
+  function squareToAffine(q) {
+    var dx = (q[0][0] - q[1][0] + q[2][0] - q[3][0]) / 4, dy = (q[0][1] - q[1][1] + q[2][1] - q[3][1]) / 4;
+    var x0 = q[0][0] - dx, y0 = q[0][1] - dy, x1 = q[1][0] + dx, y1 = q[1][1] + dy, x3 = q[3][0] + dx, y3 = q[3][1] + dy;
+    var ax = x1 - x0, ay = y1 - y0, bx = x3 - x0, by = y3 - y0, det = ax * by - bx * ay, i, u, v;
+    var umin = 0, umax = 1, vmin = 0, vmax = 1;
+    projErr = Math.sqrt(dx * dx + dy * dy);
+    cover = 0;
+    if (Math.abs(det) < 1e-9) { return [ax, bx, x0, ay, by, y0, 0, 0, 1]; }
+    for (i = 0; i < 4; i++) {
+      u = ((q[i][0] - x0) * by - (q[i][1] - y0) * bx) / det;
+      v = ((q[i][1] - y0) * ax - (q[i][0] - x0) * ay) / det;
+      umin = Math.min(umin, u); umax = Math.max(umax, u); vmin = Math.min(vmin, v); vmax = Math.max(vmax, v);
+    }
+    var ox = x0 + umin * ax + vmin * bx, oy = y0 + umin * ay + vmin * by;
+    var su = umax - umin, sv = vmax - vmin, c = [[ox, oy], [ox + su * ax, oy + su * ay],
+      [ox + su * ax + sv * bx, oy + su * ay + sv * by], [ox + sv * bx, oy + sv * by]];
+    for (i = 0; i < 4; i++) { cover = Math.max(cover, distToQuad(c[i], q)); }
+    return [su * ax, sv * bx, ox, su * ay, sv * by, oy, 0, 0, 1];
+  }
+  function mul3(a, b) {
+    var out = [];
+    for (var r = 0; r < 3; r++) {
+      for (var c = 0; c < 3; c++) { out.push(a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]); }
+    }
+    return out;
+  }
+  function inv3(m) {
+    var a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8];
+    var A = e * i - f * h, B = f * g - d * i, C = d * h - e * g, det = a * A + b * B + c * C;
+    if (Math.abs(det) < 1e-12) { return null; }
+    return [A / det, (c * h - b * i) / det, (b * f - c * e) / det,
+      B / det, (a * i - c * g) / det, (c * d - a * f) / det,
+      C / det, (b * g - a * h) / det, (a * e - b * d) / det];
+  }
+  var fitAnim = false;  // D156: the mode the last fit() left #stagebox in
   function fit() {
     var w = window.innerWidth || 1320, h = window.innerHeight || 840;
-    var s = Math.min(w / 1320, h / 840, 1.5);
-    var t = "scale(" + s + ")", c = byId("stagebox");
+    var c = byId("stagebox"), t, o;
+    if (animOn()) {
+      var q = screenQuad(w, h);
+      // D190: the exact projection where the engine divides by w, the nearest affine where it does not
+      projErr = 0; cover = 0;
+      proj = dividesByW() ? "exact" : "affine";
+      cardMap = proj === "exact" ? squareToQuad(q) : squareToAffine(q);
+      // #stagebox px -> card UV, then UV -> screen
+      var m = mul3(cardMap, [1 / CARD_W, 0, -CARD_X / CARD_W, 0, 1 / CARD_H, -CARD_Y / CARD_H, 0, 0, 1]);
+      t = "matrix3d(" + [m[0], m[3], 0, m[6], m[1], m[4], 0, m[7], 0, 0, 1, 0, m[2], m[5], 0, m[8]].join(",") + ")";
+      o = "0 0";
+      c.style.left = "0px"; c.style.top = "0px"; c.style.marginLeft = "0px"; c.style.marginTop = "0px";
+      c.style.webkitTransformOrigin = o; c.style.transformOrigin = o;
+      byId("shade").style.display = "none";
+      // D162: no cast shadow under the card in the hand: past the card's edge it only dimmed the 3D card and the world
+      byId("cardshadow").style.display = "none";
+      fitAnim = true;
+    } else {
+      cardMap = null;
+      // D156: the full-screen card writes only the transform, as 1.2 did, and the stylesheet keeps the place. Back
+      // from the hand (a view reused by an opening that fell back), the place is written out in full: no emptied
+      // inline value, which 1.3 wrote at every fit and the full-screen card stopped showing in Ultralight (inferred).
+      if (fitAnim) {
+        c.style.left = "50%"; c.style.top = "50%"; c.style.marginLeft = "-640px"; c.style.marginTop = "-400px";
+        c.style.webkitTransformOrigin = "50% 50%"; c.style.transformOrigin = "50% 50%";
+        byId("shade").style.display = "block";
+        byId("cardshadow").style.display = "";
+        fitAnim = false;
+      }
+      var s = Math.min(w / 1320, h / 840, 1.5);
+      t = "scale(" + s + ")";
+    }
     c.style.webkitTransform = t; c.style.transform = t;
+  }
+  // D178: the four corners the page used, in whole pixels, top-left first
+  function quadText() {
+    var t = [], i;
+    if (lastQuad === null) { return "none"; }
+    for (i = 0; i < 4; i++) { t.push(Math.round(lastQuad[i][0]) + "," + Math.round(lastQuad[i][1])); }
+    return t.join(";");
+  }
+  // D190: four empty boxes on the corners of #idcard: where the engine put them is where it drew the corners. err is
+  // the largest distance from a drawn corner to the quad the page was given.
+  function drawnText() {
+    var card = byId("idcard"), t = [], err = 0, i, e, r;
+    for (i = 0; i < 4; i++) {
+      e = byId("cprobe" + i);
+      if (!e) {
+        e = el("div");
+        e.id = "cprobe" + i;
+        e.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;left:" +
+          (i === 1 || i === 2 ? CARD_W : 0) + "px;top:" + (i >= 2 ? CARD_H : 0) + "px;";
+        card.appendChild(e);
+      }
+      r = e.getBoundingClientRect();
+      t.push(Math.round(r.left) + "," + Math.round(r.top));
+      if (lastQuad !== null) { err = Math.max(err, Math.sqrt(Math.pow(r.left - lastQuad[i][0], 2) + Math.pow(r.top - lastQuad[i][1], 2))); }
+    }
+    return t.join(";") + "|err=" + Math.round(err * 10) / 10;
+  }
+  // D156: where the card is on the screen and whether it can be seen; sent after the ack, so op is the drawn one.
+  function logFit() {
+    try {
+      var r = byId("idcard").getBoundingClientRect(), cs = window.getComputedStyle(byId("stagebox"), null);
+      send("AoTCardLog", "fit|anim=" + (fitAnim ? 1 : 0) + "|w=" + (window.innerWidth || 0) + "|h=" + (window.innerHeight || 0) +
+        "|card=" + Math.round(r.left) + "," + Math.round(r.top) + "," + Math.round(r.width) + "," + Math.round(r.height) +
+        "|op=" + (cs ? cs.opacity : "?") + (fitAnim ? "|by=" + quadBy + "|quad=" + quadText() + "|proj=" + proj +
+        "|projErr=" + Math.round(projErr * 10) / 10 + "|cover=" + Math.round(cover * 10) / 10 + "|drawn=" + drawnText() : ""));
+    } catch (err) {
+      send("AoTCardLog", "fit|unread: " + err.message);
+    }
+  }
+  // The card UV under a screen point, null when the map is gone or degenerate.
+  function screenUV(x, y) {
+    var r = cardMap === null ? null : inv3(cardMap);
+    if (r === null) { return null; }
+    var d = r[6] * x + r[7] * y + r[8];
+    if (Math.abs(d) < 1e-12) { return null; }
+    return [(r[0] * x + r[1] * y + r[2]) / d, (r[3] * x + r[4] * y + r[5]) / d];
+  }
+  // A click in the star field (#chart) is a tap; AoT_Card.psc moves a point outside the clips' grid to its edge.
+  function inChart(node) {
+    for (var n = node; n; n = n.parentNode) { if (n.id === "chart") { return true; } }
+    return false;
+  }
+  function onTap(ev) {
+    if (!animOn() || cardMap === null) { return; }
+    var e = ev || window.event;
+    if (!inChart(e.target || e.srcElement)) { return; }
+    var uv = screenUV(e.clientX, e.clientY);
+    if (uv === null || uv[0] < 0 || uv[0] > 1 || uv[1] < 0 || uv[1] > 1) { return; }
+    send("AoTCardAction", "tap-at|" + uv[0].toFixed(6) + "|" + uv[1].toFixed(6));
   }
   function rotate(e, deg) { var r = "rotate(" + deg + "deg)"; e.style.webkitTransform = r; e.style.transform = r; }
   function drawFichas() {
@@ -368,16 +595,22 @@
   }
   // D116: the player's portrait, a PNG the Lodestone native wrote next to this page; c_portrait is its name, or empty
   // (the silhouette stays). Only a plain file name is accepted, and the same name is not loaded twice.
-  var portraitFile = "";
+  // D144: the portrait is the one confirmed on the background page, cut out, over the background c_bg (0 to 3).
+  var portraitFile = "", portraitBg = "none";
+  function bgClass() { var b = num(S, "c_bg"); return (b >= 0 && b <= 3) ? "bg" + b : "bg0"; }
   function drawPortrait() {
-    var img = byId("portraitimg"), sil = byId("psil"), f = S["c_portrait"] === undefined ? "" : String(S["c_portrait"]);
+    var box = byId("portrait"), img = byId("portraitimg"), sil = byId("psil"), f = S["c_portrait"] === undefined ? "" : String(S["c_portrait"]);
     if (!/^[A-Za-z0-9_\-]+\.png$/.test(f)) {
-      portraitFile = ""; img.style.display = "none"; img.removeAttribute("src"); sil.style.display = "block"; return;
+      portraitFile = ""; img.style.display = "none"; img.removeAttribute("src"); sil.style.display = "block";
+      box.className = ""; portraitBg = "none"; return;
     }
-    if (f === portraitFile) { return; }
+    if (f === portraitFile) {
+      if (img.style.display === "block") { box.className = bgClass(); portraitBg = box.className; }
+      return;
+    }
     portraitFile = f;
-    img.onerror = function () { img.style.display = "none"; sil.style.display = "block"; portraitFile = ""; send("AoTCardLog", "portrait|missing|" + f); };
-    img.onload = function () { img.style.display = "block"; sil.style.display = "none"; send("AoTCardLog", "portrait|ok|" + f + "|" + img.naturalWidth); };
+    img.onerror = function () { img.style.display = "none"; sil.style.display = "block"; box.className = ""; portraitBg = "none"; portraitFile = ""; send("AoTCardLog", "portrait|missing|" + f); };
+    img.onload = function () { img.style.display = "block"; sil.style.display = "none"; box.className = bgClass(); portraitBg = box.className; send("AoTCardLog", "portrait|ok|" + f + "|" + img.naturalWidth + "|" + portraitBg); };
     img.src = f;
   }
   var drawnLetter = "?";
@@ -685,11 +918,14 @@
   }
 
   window.AoTOnCard = function (payload) {
+    // D184: the cursor comes on with the card in the hand; the press that opened the card began before the page had
+    // the keyboard
+    if (String(payload).indexOf("c_cursor|") === 0) { keyArmed = false; send("AoTCardLog", "cursor|" + String(payload).substring(9)); return; }
     try {
       var d = parse(payload);
       if (d["c_name"] !== undefined) {
         for (var k in S) { if (S.hasOwnProperty(k) && k.charAt(0) === "t") { delete S[k]; } }
-        delete S["c_trees"]; delete S["c_hold"]; delete S["c_portrait"];
+        delete S["c_trees"]; delete S["c_hold"]; delete S["c_portrait"]; delete S["c_bg"]; delete S["c_anim"];
         selNode = -1; armedAt = 0; lastResult = "";
       }
       for (var key in d) { if (d.hasOwnProperty(key)) { S[key] = d[key]; } }
@@ -700,20 +936,21 @@
         armedAt = 0;
       }
       fit(); drawHeader(); drawTrees();
-      byId("stagebox").className = "ready";
+      byId("stagebox").className = stageClass();
       var back = resolve("AoTCardAction");
       if (back !== null) { back.fn("ready-" + back.via); }
       var drawnPoints = byId("progtext").textContent.match(/[0-9]+/);
       send("AoTCardLog", "ack|" + String(payload).split("\n").length + "|" + String(payload).length +
         "|rank=" + drawnLetter + "|points=" + (drawnPoints ? drawnPoints[0] : "?") +
         "|level=" + byId("level").textContent + "|pp=" + byId("pp").textContent +
-        "|seal=Rank " + drawnLetter + "|crest=" + crestShown + "|portrait=" + (portraitFile === "" ? "none" : portraitFile) + "|fichas=" + fichasText() +
+        "|seal=Rank " + drawnLetter + "|crest=" + crestShown + "|portrait=" + (portraitFile === "" ? "none" : portraitFile) + "|bg=" + portraitBg + "|fichas=" + fichasText() +
         "|cols=" + byId("tabs").getElementsByClassName("col").length +
         "|nodes=" + byId("plane").getElementsByClassName("node").length +
         "|taken=" + (byId("plane").getElementsByClassName("s2").length + byId("plane").getElementsByClassName("s3").length +
           byId("plane").getElementsByClassName("s4").length) + "|stamp=" + (byId("stamp").className === "show" ? 1 : 0) +
         "|tab=" + tab + "|recent=" + byId("recent").getElementsByClassName("stamp").length +
-        "|desc=" + descCount());
+        "|desc=" + descCount() + "|anim=" + (animOn() ? 1 : 0));
+      logFit();
     } catch (err) {
       byId("stagebox").className = "";
       send("AoTCardLog", "render error: " + err.message);
@@ -721,12 +958,25 @@
   };
 
   window.onerror = function (message, source, line) { send("AoTCardLog", "js-error: " + message + " at " + line); return false; };
-  window.onresize = fit;
+  window.onresize = function () { fit(); logFit(); };
+  // D154: the finger follows the click on the star field; capture, so it goes before the star's own click
+  if (document.addEventListener) { document.addEventListener("mousedown", onTap, true); }
   // No close button: the card key and Esc. AoT_Card.psc already closes on both; the page answers them
   // too, for a focus that swallows the key before Papyrus sees it.
+  // D184: with the card in the hand the card key closes too, but only a press whose release the page saw first (the
+  // press that opened the card may still be down when the page gets the keyboard).
+  var keyArmed = false;
   document.onkeydown = function (ev) {
     var e = ev || window.event;
-    if (e.keyCode === 27 || (hotkey > 0 && e.keyCode === hotkey)) { send("AoTCardAction", "close"); }
+    if (e.keyCode === 27) { send("AoTCardAction", "close"); return; }
+    if (hotkey > 0 && e.keyCode === hotkey) {
+      if (!animOn()) { send("AoTCardAction", "close"); return; }
+      if (keyArmed && !e.repeat) { keyArmed = false; send("AoTCardAction", "close"); }
+    }
+  };
+  document.onkeyup = function (ev) {
+    var e = ev || window.event;
+    if (hotkey > 0 && e.keyCode === hotkey && animOn()) { keyArmed = true; }
   };
   var tries = 0;
   function announce() {
